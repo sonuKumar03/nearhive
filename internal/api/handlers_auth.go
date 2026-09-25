@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -47,7 +48,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateUser(r.Context(), user); err != nil {
-		JSONError(w, http.StatusConflict, "user already exists", "CONFLICT", nil)
+		log.Printf("[Auth] CreateUser error: %v", err)
+		JSONError(w, http.StatusConflict, "user already exists or could not be created", "CONFLICT", nil)
 		return
 	}
 

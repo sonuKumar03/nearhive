@@ -33,6 +33,11 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *PostgresStore) DB() *sql.DB {
+	return s.db.DB
+}
+
+
 // UserStore implementation
 func (s *PostgresStore) CreateUser(ctx context.Context, u *model.User) error {
 	query := `INSERT INTO users (id, email, password, created_at, updated_at) 

@@ -23,6 +23,7 @@ import (
 	"github.com/sonukumar/nearhive/internal/scraper/sources"
 	"github.com/sonukumar/nearhive/internal/store"
 	"github.com/sonukumar/nearhive/internal/verifier"
+	"github.com/sonukumar/nearhive/migrations"
 )
 
 var rootCmd = &cobra.Command{
@@ -57,6 +58,11 @@ func serveCmd() *cobra.Command {
 				log.Fatalf("failed to connect to database: %v", err)
 			}
 			defer dbStore.Close()
+
+			// Auto-run database migrations on startup
+			if err := migrations.Run(context.Background(), dbStore.DB()); err != nil {
+				log.Fatalf("failed to run database migrations: %v", err)
+			}
 
 			// Geocoders
 			nom := geocoder.NewNominatim(cfg.NominatimURL, nil)

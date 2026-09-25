@@ -130,7 +130,7 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 
 	clusters, err := h.store.ClusterSearch(r.Context(), lat, lng, radiusKM*1000, k)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to compute spatial clusters", "INTERNAL_ERROR", nil)
+		JSONError(w, http.StatusInternalServerError, "failed to compute spatial clusters: "+err.Error(), "INTERNAL_ERROR", nil)
 		return
 	}
 

@@ -273,13 +273,10 @@ func (s *PostgresStore) ClusterSearch(ctx context.Context, lat, lng, radiusMeter
 		FROM locations l
 		WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	),
-	point_count AS (
-		SELECT COUNT(*) AS total FROM matched_locations
-	),
 	clustered AS (
 		SELECT 
 			geom,
-			ST_ClusterKMeans(geom, LEAST($4, (SELECT GREATEST(total, 1) FROM point_count))) OVER() AS cluster_id
+			ST_ClusterKMeans(geom, $4) OVER() AS cluster_id
 		FROM matched_locations
 	)
 	SELECT 

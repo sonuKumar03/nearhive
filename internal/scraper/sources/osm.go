@@ -13,22 +13,35 @@ import (
 	"github.com/sonukumar/nearhive/internal/scraper"
 )
 
+var defaultOverpassEndpoints = []string{
+	"https://overpass-api.de/api/interpreter",
+	"https://overpass.kumi.systems/api/interpreter",
+	"https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+}
+
 type OSMScraper struct {
-	apiURL string
-	client *http.Client
+	endpoints []string
+	client    *http.Client
 }
 
 func NewOSMScraper() *OSMScraper {
-	return NewOSMScraperWithURL("https://overpass-api.de/api/interpreter", nil)
+	return NewOSMScraperWithEndpoints(defaultOverpassEndpoints, nil)
 }
 
 func NewOSMScraperWithURL(apiURL string, client *http.Client) *OSMScraper {
+	return NewOSMScraperWithEndpoints([]string{apiURL}, client)
+}
+
+func NewOSMScraperWithEndpoints(endpoints []string, client *http.Client) *OSMScraper {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	if len(endpoints) == 0 {
+		endpoints = defaultOverpassEndpoints
+	}
 	return &OSMScraper{
-		apiURL: apiURL,
-		client: client,
+		endpoints: endpoints,
+		client:    client,
 	}
 }
 
@@ -40,11 +53,18 @@ func (o *OSMScraper) Supports(region string) bool {
 	return true
 }
 
+type overpassCenter struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
 type overpassElement struct {
-	Type string            `json:"type"`
-	Lat  float64           `json:"lat"`
-	Lon  float64           `json:"lon"`
-	Tags map[string]string `json:"tags"`
+	Type   string            `json:"type"`
+	ID     int64             `json:"id"`
+	Lat    float64           `json:"lat"`
+	Lon    float64           `json:"lon"`
+	Center *overpassCenter   `json:"center,omitempty"`
+	Tags   map[string]string `json:"tags"`
 }
 
 type overpassResponse struct {
@@ -57,43 +77,85 @@ func (o *OSMScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*sc
 		radiusMeters = 15000
 	}
 
-	query := fmt.Sprintf(`[out:json][timeout:25];(node["office"~"company|it|coworking"](around:%d,%f,%f););out center;`,
+	query := fmt.Sprintf(`[out:json][timeout:25];(nwr["office"~"company|it|software|telecommunication|coworking|research"](around:%d,%f,%f);nwr["amenity"="coworking_space"](around:%d,%f,%f););out center;`,
+		radiusMeters, req.Lat, req.Lng,
 		radiusMeters, req.Lat, req.Lng)
 
-	data := url.Values{}
-	data.Set("data", query)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.apiURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	httpReq.Header.Set("User-Agent", "NearHive/1.0")
-
-	resp, err := o.client.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("overpass returned status %d", resp.StatusCode)
-	}
-
+	var lastErr error
 	var opResp overpassResponse
-	if err := json.NewDecoder(resp.Body).Decode(&opResp); err != nil {
-		return nil, err
+
+	for _, endpoint := range o.endpoints {
+		data := url.Values{}
+		data.Set("data", query)
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(data.Encode()))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		httpReq.Header.Set("User-Agent", "NearHive/1.0")
+
+		resp, err := o.client.Do(httpReq)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("overpass endpoint %s returned status %d", endpoint, resp.StatusCode)
+			continue
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&opResp)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Successfully retrieved and parsed response from this mirror
+		lastErr = nil
+		break
+	}
+
+	if lastErr != nil && len(opResp.Elements) == 0 {
+		return nil, lastErr
 	}
 
 	var sightings []model.Sighting
 	for _, el := range opResp.Elements {
-		name := el.Tags["name"]
+		name := strings.TrimSpace(el.Tags["name"])
+		if name == "" {
+			name = strings.TrimSpace(el.Tags["brand"])
+		}
+		if name == "" {
+			name = strings.TrimSpace(el.Tags["operator"])
+		}
 		if name == "" {
 			continue
 		}
+
+		lat := el.Lat
+		lng := el.Lon
+		if lat == 0 && lng == 0 && el.Center != nil {
+			lat = el.Center.Lat
+			lng = el.Center.Lon
+		}
+		if lat == 0 && lng == 0 {
+			continue
+		}
+
 		var addressParts []string
 		if street := el.Tags["addr:street"]; street != "" {
 			addressParts = append(addressParts, street)
+		}
+		if housenumber := el.Tags["addr:housenumber"]; housenumber != "" {
+			addressParts = append(addressParts, housenumber)
+		}
+		if suburb := el.Tags["addr:suburb"]; suburb != "" {
+			addressParts = append(addressParts, suburb)
 		}
 		if city := el.Tags["addr:city"]; city != "" {
 			addressParts = append(addressParts, city)
@@ -107,13 +169,25 @@ func (o *OSMScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*sc
 		if site := el.Tags["website"]; site != "" {
 			meta["website"] = site
 		}
+		if phone := el.Tags["phone"]; phone != "" {
+			meta["phone"] = phone
+		}
+		if branch := el.Tags["branch"]; branch != "" {
+			meta["branch"] = branch
+		}
+		if office := el.Tags["office"]; office != "" {
+			meta["office_type"] = office
+		}
+		if amenity := el.Tags["amenity"]; amenity != "" {
+			meta["amenity"] = amenity
+		}
 
 		sightings = append(sightings, model.Sighting{
 			Source:      o.Name(),
 			CompanyName: name,
 			RawAddress:  rawAddress,
-			Lat:         el.Lat,
-			Lng:         el.Lon,
+			Lat:         lat,
+			Lng:         lng,
 			Metadata:    meta,
 			ScrapedAt:   time.Now(),
 		})

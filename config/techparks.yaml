@@ -1,11 +1,200 @@
 parks:
+  # Bangalore Hubs
   - id: itpb
     name: "ITPB Whitefield"
-    url: "https://example.com/mock-itpb-tenants"
     region: "Bangalore"
     lat: 12.9854
     lng: 77.7366
+    url: "https://example.com/mock-itpb-tenants"
     selectors:
       company_list: ".tenant-card"
       name: ".company-name"
       address: ".company-address"
+    tenants:
+      - "Mu Sigma"
+      - "Tata Consultancy Services"
+      - "Unisys India"
+      - "Huawei Technologies"
+      - "Xerox Business Services"
+      - "Applied Materials"
+
+  - id: manyata
+    name: "Manyata Tech Park"
+    region: "Bangalore"
+    lat: 13.0475
+    lng: 77.6200
+    tenants:
+      - "Cognizant Technology Solutions"
+      - "IBM India"
+      - "Target Corporation"
+      - "Rolls-Royce Data Labs"
+      - "Nokia Networks"
+      - "Philips Innovation Campus"
+      - "Larsen & Toubro Infotech"
+      - "NVIDIA Graphics"
+
+  - id: rmz_ecospace
+    name: "RMZ Ecospace & Ecoworld"
+    region: "Bangalore"
+    lat: 12.9260
+    lng: 77.6836
+    tenants:
+      - "Shell Information Technology"
+      - "Intel India"
+      - "Honeywell Technology Solutions"
+      - "Morgan Stanley Advantage Services"
+      - "KPMG Global Services"
+      - "Bosch Engineering"
+      - "SAP Labs India"
+
+  - id: bagmane
+    name: "Bagmane Tech Park"
+    region: "Bangalore"
+    lat: 12.9806
+    lng: 77.6635
+    tenants:
+      - "Dell Technologies"
+      - "Oracle India"
+      - "Texas Instruments"
+      - "Motorola Solutions"
+      - "Samsung R&D Institute"
+      - "Boeing India Engineering"
+
+  - id: electronic_city
+    name: "Electronic City Tech Zone"
+    region: "Bangalore"
+    lat: 12.8399
+    lng: 77.6770
+    tenants:
+      - "Infosys Limited"
+      - "Wipro Technologies"
+      - "Siemens Technology India"
+      - "Hewlett Packard Enterprise"
+      - "Tech Mahindra"
+      - "HCL Technologies"
+
+  # Hyderabad Hubs
+  - id: hitec_city
+    name: "Cyber Towers HITEC City"
+    region: "Hyderabad"
+    lat: 17.4504
+    lng: 78.3811
+    tenants:
+      - "Microsoft India Development Center"
+      - "Oracle India"
+      - "Qualcomm India"
+      - "Tech Mahindra"
+      - "L&T Infotech"
+
+  - id: mindspace_hyd
+    name: "Mindspace Madhapur"
+    region: "Hyderabad"
+    lat: 17.4399
+    lng: 78.3807
+    tenants:
+      - "Qualcomm India"
+      - "Verizon Data Services"
+      - "IBM India"
+      - "Cognizant"
+      - "Amazon Development Centre"
+      - "AMD India"
+
+  - id: financial_district_hyd
+    name: "Financial District Gachibowli"
+    region: "Hyderabad"
+    lat: 17.4156
+    lng: 78.3429
+    tenants:
+      - "Google India"
+      - "Apple Operations India"
+      - "Amazon Web Services"
+      - "Capgemini India"
+      - "Franklin Templeton"
+      - "ServiceNow India"
+
+  # Pune Hubs
+  - id: hinjewadi_pune
+    name: "Rajiv Gandhi Infotech Park Hinjewadi"
+    region: "Pune"
+    lat: 18.5913
+    lng: 73.7389
+    tenants:
+      - "Infosys Hinjewadi"
+      - "Wipro Technologies"
+      - "Tata Consultancy Services"
+      - "Cognizant Technology Solutions"
+      - "Barclays Global Service Centre"
+      - "Tech Mahindra"
+
+  - id: magarpatta_pune
+    name: "Magarpatta Cybercity"
+    region: "Pune"
+    lat: 18.5135
+    lng: 73.9248
+    tenants:
+      - "Accenture Services"
+      - "Amdocs Development Centre"
+      - "BNY Mellon International Operations"
+      - "HCL Technologies"
+      - "Deutsche Bank Operations"
+
+  - id: eon_kharadi_pune
+    name: "EON Free Zone Kharadi"
+    region: "Pune"
+    lat: 18.5529
+    lng: 73.9520
+    tenants:
+      - "Barclays Technology Centre"
+      - "Credit Suisse Business Analytics"
+      - "UBS India"
+      - "Veritas Technologies"
+      - "Eaton India Innovation Center"
+
+  # Chennai Hubs
+  - id: tidel_park_chennai
+    name: "Tidel Park Taramani"
+    region: "Chennai"
+    lat: 12.9893
+    lng: 80.2483
+    tenants:
+      - "Cisco Systems India"
+      - "Tata Consultancy Services"
+      - "HCL Technologies"
+      - "Sify Technologies"
+
+  - id: dlf_cybercity_chennai
+    name: "DLF Cybercity Manapakkam"
+    region: "Chennai"
+    lat: 13.0234
+    lng: 80.1755
+    tenants:
+      - "IBM India"
+      - "Cognizant Chennai"
+      - "Barclays Global Service"
+      - "Larsen & Toubro Infotech"
+
+  # NCR Hubs
+  - id: dlf_cybercity_gurgaon
+    name: "DLF Cyber City"
+    region: "Gurgaon"
+    lat: 28.4950
+    lng: 77.0895
+    tenants:
+      - "Google India Gurgaon"
+      - "Microsoft India"
+      - "Deloitte Consulting"
+      - "KPMG India"
+      - "American Express"
+      - "Schneider Electric"
+
+  - id: sector62_noida
+    name: "Sector 62 IT Park"
+    region: "Noida"
+    lat: 28.6258
+    lng: 77.3654
+    tenants:
+      - "Samsung R&D Institute India"
+      - "IBM India Noida"
+      - "Ericsson India Global Services"
+      - "Tech Mahindra"
+      - "Barco Electronic Systems"

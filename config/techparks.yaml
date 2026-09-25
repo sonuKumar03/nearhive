@@ -1,0 +1,11 @@
+parks:
+  - id: itpb
+    name: "ITPB Whitefield"
+    url: "https://example.com/mock-itpb-tenants"
+    region: "Bangalore"
+    lat: 12.9854
+    lng: 77.7366
+    selectors:
+      company_list: ".tenant-card"
+      name: ".company-name"
+      address: ".company-address"

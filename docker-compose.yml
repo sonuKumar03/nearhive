@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    container_name: nearhive-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nearhive
+    ports:
+      - "5432:5432"
+    volumes:
+      - nearhive_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nearhive"]
+      interval: 4s
+      timeout: 4s
+      retries: 8
+      start_period: 15s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nearhive-app
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
+      PORT: 8080
+      JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
+      ENVIRONMENT: development
+      ALLOWED_ORIGINS: "*"
+      LOG_LEVEL: info
+    restart: unless-stopped
+
+volumes:
+  nearhive_pgdata:
+    name: nearhive_pgdata

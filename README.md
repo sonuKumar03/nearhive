@@ -17,31 +17,39 @@ NearHive scrapes multiple independent sources (OpenStreetMap, Tech Park director
 - **Base URL**: `https://nearhive-production.up.railway.app`
 - **Health Check**: `GET https://nearhive-production.up.railway.app/health`
 
-## Getting Started
+## Quick Start (Local Development)
 
-### Prerequisites
+The easiest way to run NearHive locally is via Docker and Make — no Go or PostgreSQL installation required:
 
-- Go 1.23+
-- PostgreSQL 16+ with PostGIS 3.4 & pg_trgm extensions enabled
-
-### Setup & Run
-
-1. Clone the repository and install dependencies:
 ```bash
-git clone https://github.com/sonukumar/nearhive.git
-cd nearhive
-go mod download
+# 1. Start full app & PostGIS database in background
+make up
+
+# 2. View live logs
+make logs-app
+
+# 3. Stop containers when done
+make down
+
+# 4. Stop and wipe database volume for a clean slate
+make clean
 ```
 
-2. Copy `.env.example` to `.env` and configure your database:
+The app will be available at:
+- **Web App / Dashboard**: [http://localhost:8080](http://localhost:8080)
+- **Health Check**: [http://localhost:8080/health](http://localhost:8080/health)
+- **PostGIS Database**: `localhost:5432` (`postgres:postgres`)
+
+### Manual Native Setup (Without Docker)
+
+1. Ensure Go 1.23+ and PostgreSQL with PostGIS are installed.
+2. Copy configuration:
 ```bash
 cp .env.example .env
 ```
-
-3. Build and run:
+3. Run natively:
 ```bash
-go build -o nearhive ./cmd/nearhive
-./nearhive serve
+make local-run
 ```
 
 ## CLI Usage

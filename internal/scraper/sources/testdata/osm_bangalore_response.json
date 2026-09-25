@@ -1,0 +1,28 @@
+{
+  "elements": [
+    {
+      "type": "node",
+      "id": 101,
+      "lat": 12.9854,
+      "lon": 77.7366,
+      "tags": {
+        "name": "Mu Sigma",
+        "office": "it",
+        "addr:street": "ITPB Main Road",
+        "addr:city": "Bangalore"
+      }
+    },
+    {
+      "type": "node",
+      "id": 102,
+      "lat": 12.9352,
+      "lon": 77.6245,
+      "tags": {
+        "name": "Flipkart Internet Private Limited",
+        "office": "company",
+        "addr:city": "Bangalore",
+        "website": "https://www.flipkart.com"
+      }
+    }
+  ]
+}

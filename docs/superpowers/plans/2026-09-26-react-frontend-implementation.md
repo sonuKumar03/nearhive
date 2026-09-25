@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a sleek, modern, responsive Next.js/React frontend with TanStack Query v5, Tailwind CSS, Leaflet spatial mapping, and PostGIS clustering, configured for seamless deployment to Vercel.
+**Goal:** Build a sleek, modern, responsive Next.js/React frontend with TanStack Query v5, Tailwind CSS v4, Leaflet spatial mapping, PostGIS clustering, and background job cancellation, configured for deployment to Vercel.
 
-**Architecture:** A modern Next.js 15 App Router application in `web/` with TanStack Query v5 managing server state, Leaflet rendering geospatial layers (individual office pins and server-side PostGIS `ST_ClusterKMeans` centroid clusters), and Vercel rewrites proxying `/api/*` requests to the Railway Go backend (`https://nearhive-production.up.railway.app`).
+**Architecture:** A modern Next.js 15 App Router application in `web/` with TanStack Query v5 managing server state, Leaflet rendering geospatial layers (individual office pins and server-side PostGIS `ST_ClusterKMeans` centroid clusters), and Vercel rewrites proxying `/api/*` requests directly to the Railway Go backend (`https://nearhive-production.up.railway.app`).
 
 **Tech Stack:** Next.js 15 (App Router), React 19, TypeScript 5, Tailwind CSS v4, TanStack Query v5, Leaflet & React-Leaflet, Lucide React icons, Vercel Edge/Serverless platform.
 
@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: Runnable Next.js project in `web/` with Vercel rewrites to Railway Go backend API.
 
-- [ ] **Step 1: Create `web/package.json` with dependencies**
+- [x] **Step 1: Create `web/package.json` with dependencies**
 
 ```json
 {
@@ -56,7 +56,6 @@
     "next": "^15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-leaflet": "^5.0.0",
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
@@ -72,7 +71,7 @@
 }
 ```
 
-- [ ] **Step 2: Create `web/next.config.ts` with Vercel rewrites**
+- [x] **Step 2: Create `web/next.config.ts` with Vercel rewrites**
 
 ```typescript
 import type { NextConfig } from 'next';
@@ -98,7 +97,7 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-- [ ] **Step 3: Create `web/tsconfig.json`**
+- [x] **Step 3: Create `web/tsconfig.json`**
 
 ```json
 {
@@ -130,7 +129,7 @@ export default nextConfig;
 }
 ```
 
-- [ ] **Step 4: Create `web/src/app/globals.css` with Tech Hive Dark theme**
+- [x] **Step 4: Create `web/src/app/globals.css` with Tech Hive Dark theme**
 
 ```css
 @import "tailwindcss";
@@ -160,7 +159,7 @@ export default nextConfig;
 }
 ```
 
-- [ ] **Step 5: Run dependency installation**
+- [x] **Step 5: Run dependency installation**
 
 Run: `cd web && pnpm install`  
 Expected: Dependencies installed with zero errors.
@@ -178,7 +177,7 @@ Expected: Dependencies installed with zero errors.
 **Interfaces:**
 - Produces: Strongly typed data contracts matching Go models and authenticated fetch wrapper.
 
-- [ ] **Step 1: Write `web/src/types/index.ts`**
+- [x] **Step 1: Write `web/src/types/index.ts`**
 
 ```typescript
 export interface Company {
@@ -286,7 +285,7 @@ export interface ClusterParams {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/lib/api-client.ts` with transparent JWT auth**
+- [x] **Step 2: Write `web/src/lib/api-client.ts` with transparent JWT auth**
 
 ```typescript
 export class ApiError extends Error {
@@ -322,7 +321,7 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
 }
 ```
 
-- [ ] **Step 3: Write `web/src/lib/query-client.ts`**
+- [x] **Step 3: Write `web/src/lib/query-client.ts`**
 
 ```typescript
 import { QueryClient } from '@tanstack/react-query';
@@ -331,7 +330,7 @@ export function makeQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 60 * 1000, // 1 minute
+        staleTime: 60 * 1000,
         gcTime: 5 * 60 * 1000,
         refetchOnWindowFocus: false,
         retry: 1,
@@ -351,7 +350,7 @@ export function getQueryClient() {
 }
 ```
 
-- [ ] **Step 4: Verify TypeScript compilation**
+- [x] **Step 4: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
@@ -370,7 +369,7 @@ Expected: 0 errors.
 **Interfaces:**
 - Produces: Reactive hooks with automatic caching, background polling, and mutation invalidation.
 
-- [ ] **Step 1: Write `web/src/hooks/useCompanies.ts`**
+- [x] **Step 1: Write `web/src/hooks/useCompanies.ts`**
 
 ```typescript
 import { useQuery } from '@tanstack/react-query';
@@ -411,7 +410,7 @@ export function useCompanies(params: SearchParams, enabled = true) {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/hooks/useClusters.ts`**
+- [x] **Step 2: Write `web/src/hooks/useClusters.ts`**
 
 ```typescript
 import { useQuery } from '@tanstack/react-query';
@@ -446,7 +445,7 @@ export function useClusters(params: ClusterParams, enabled = false) {
 }
 ```
 
-- [ ] **Step 3: Write `web/src/hooks/useCompanyDetails.ts`**
+- [x] **Step 3: Write `web/src/hooks/useCompanyDetails.ts`**
 
 ```typescript
 import { useQuery } from '@tanstack/react-query';
@@ -470,7 +469,7 @@ export function useSightings(companyId: string | null) {
 }
 ```
 
-- [ ] **Step 4: Write `web/src/hooks/useScrapeJobs.ts` with polling and cancellation**
+- [x] **Step 4: Write `web/src/hooks/useScrapeJobs.ts` with polling and cancellation**
 
 ```typescript
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -485,7 +484,6 @@ export function useScrapeJob(jobId: string | null) {
     queryFn: async () => {
       const job = await fetchApi<ScrapeJob>(`/api/v1/jobs/${jobId}`);
       if (job.status === 'done' || job.status === 'cancelled') {
-        // Auto-invalidate companies & clusters on completion
         queryClient.invalidateQueries({ queryKey: ['companies'] });
         queryClient.invalidateQueries({ queryKey: ['clusters'] });
       }
@@ -531,7 +529,7 @@ export function useCancelScraper() {
 }
 ```
 
-- [ ] **Step 5: Write `web/src/hooks/useAuth.ts` with guest demo auto-login**
+- [x] **Step 5: Write `web/src/hooks/useAuth.ts` with guest demo auto-login**
 
 ```typescript
 import { useState, useEffect } from 'react';
@@ -551,7 +549,6 @@ export function useAuth() {
         try { setUser(JSON.parse(savedUser)); } catch {}
       }
     } else {
-      // Auto-authenticate guest demo
       autoLoginGuest();
     }
   }, []);
@@ -592,7 +589,7 @@ export function useAuth() {
 }
 ```
 
-- [ ] **Step 6: Verify TypeScript compilation**
+- [x] **Step 6: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
@@ -603,14 +600,12 @@ Expected: 0 errors.
 
 **Files:**
 - Create: `web/src/components/map/MapContainer.tsx`
-- Create: `web/src/components/map/EpicenterMarker.tsx`
-- Create: `web/src/components/map/CompanyMarkers.tsx`
-- Create: `web/src/components/map/ClusterMarkers.tsx`
+- Create: `web/src/components/map/ClientMap.tsx`
 
 **Interfaces:**
 - Produces: Dynamic Leaflet map with dark theme, draggable epicenter, radius circle, and custom company pins.
 
-- [ ] **Step 1: Write `web/src/components/map/MapContainer.tsx` with dynamic SSR client loading**
+- [x] **Step 1: Write `web/src/components/map/MapContainer.tsx` with dynamic SSR client loading**
 
 ```tsx
 'use client';
@@ -618,7 +613,6 @@ Expected: 0 errors.
 import dynamic from 'next/dynamic';
 import { CompanySearchResult, SpatialCluster } from '@/types';
 
-// Dynamically import Leaflet with ssr: false to prevent window is not defined errors
 const ClientMap = dynamic(() => import('./ClientMap'), {
   ssr: false,
   loading: () => (
@@ -644,7 +638,7 @@ export default function MapContainer(props: MapProps) {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/components/map/ClientMap.tsx`**
+- [x] **Step 2: Write `web/src/components/map/ClientMap.tsx`**
 
 ```tsx
 'use client';
@@ -681,7 +675,6 @@ export default function ClientMap({
   const circleRef = useRef<L.Circle | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Initialize Map Once
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -702,7 +695,6 @@ export default function ClientMap({
     const markerLayer = L.layerGroup().addTo(map);
     markerLayerRef.current = markerLayer;
 
-    // Draggable Epicenter Marker
     const epicenterIcon = L.divIcon({
       className: 'epicenter-marker',
       html: `
@@ -743,7 +735,6 @@ export default function ClientMap({
     };
   }, []);
 
-  // Sync Epicenter & Radius on Prop Change
   useEffect(() => {
     if (epicenterRef.current) {
       epicenterRef.current.setLatLng([center.lat, center.lng]);
@@ -757,13 +748,11 @@ export default function ClientMap({
     }
   }, [center.lat, center.lng, radiusKm]);
 
-  // Sync Marker / Cluster Layers
   useEffect(() => {
     if (!markerLayerRef.current || !mapRef.current) return;
     markerLayerRef.current.clearLayers();
 
     if (isClusterMode) {
-      // Render PostGIS Centroid Clusters
       clusters.forEach((c) => {
         if (!c.lat || !c.lng) return;
         const size = Math.min(56, Math.max(34, 26 + Math.log2(c.count + 1) * 5));
@@ -784,7 +773,6 @@ export default function ClientMap({
         markerLayerRef.current?.addLayer(marker);
       });
     } else {
-      // Render Individual Company Pins
       companies.forEach((comp) => {
         if (!comp.lat || !comp.lng) return;
         const conf = Math.round(comp.confidence * 100);
@@ -811,7 +799,7 @@ export default function ClientMap({
 }
 ```
 
-- [ ] **Step 3: Verify TypeScript compilation**
+- [x] **Step 3: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
@@ -823,12 +811,11 @@ Expected: 0 errors.
 **Files:**
 - Create: `web/src/components/sidebar/Sidebar.tsx`
 - Create: `web/src/components/sidebar/CompanyCard.tsx`
-- Create: `web/src/components/sidebar/FilterControls.tsx`
 
 **Interfaces:**
-- Produces: Collapsible sidebar rendering real-time search, industry filter chips, and company cards.
+- Produces: Collapsible sidebar rendering real-time search, count badge, and company cards (without export buttons).
 
-- [ ] **Step 1: Write `web/src/components/sidebar/CompanyCard.tsx`**
+- [x] **Step 1: Write `web/src/components/sidebar/CompanyCard.tsx`**
 
 ```tsx
 import { CompanySearchResult } from '@/types';
@@ -896,12 +883,12 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/components/sidebar/Sidebar.tsx`**
+- [x] **Step 2: Write `web/src/components/sidebar/Sidebar.tsx`**
 
 ```tsx
 import { CompanySearchResult } from '@/types';
 import CompanyCard from './CompanyCard';
-import { Search, SlidersHorizontal, Download } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 interface SidebarProps {
   companies: CompanySearchResult[];
@@ -910,8 +897,6 @@ interface SidebarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
-  onExportCsv: () => void;
-  onExportGeoJson: () => void;
 }
 
 export default function Sidebar({
@@ -921,8 +906,6 @@ export default function Sidebar({
   searchQuery,
   onSearchChange,
   onSelectCompany,
-  onExportCsv,
-  onExportGeoJson,
 }: SidebarProps) {
   return (
     <aside className="w-full sm:w-96 md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 shrink-0 h-full">
@@ -934,25 +917,6 @@ export default function Sidebar({
             <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700">
               {totalCount}
             </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={onExportCsv}
-              title="Export as CSV"
-              className="px-2 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-colors flex items-center gap-1"
-            >
-              <Download className="w-3 h-3 text-amber-400" />
-              CSV
-            </button>
-            <button
-              onClick={onExportGeoJson}
-              title="Export as GeoJSON"
-              className="px-2 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-colors flex items-center gap-1"
-            >
-              <Download className="w-3 h-3 text-emerald-400" />
-              GeoJSON
-            </button>
           </div>
         </div>
 
@@ -997,7 +961,7 @@ export default function Sidebar({
 }
 ```
 
-- [ ] **Step 3: Verify TypeScript compilation**
+- [x] **Step 3: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
@@ -1013,7 +977,7 @@ Expected: 0 errors.
 **Interfaces:**
 - Produces: Slide-over drawer showing detailed verification breakdown, confidence metrics, and crawl source audit trail.
 
-- [ ] **Step 1: Write `web/src/components/drawers/SightingsTimeline.tsx`**
+- [x] **Step 1: Write `web/src/components/drawers/SightingsTimeline.tsx`**
 
 ```tsx
 import { Sighting } from '@/types';
@@ -1082,13 +1046,13 @@ export default function SightingsTimeline({ sightings }: SightingsTimelineProps)
 }
 ```
 
-- [ ] **Step 2: Write `web/src/components/drawers/CompanyDetailDrawer.tsx`**
+- [x] **Step 2: Write `web/src/components/drawers/CompanyDetailDrawer.tsx`**
 
 ```tsx
 import { CompanySearchResult } from '@/types';
 import { useCompany, useSightings } from '@/hooks/useCompanyDetails';
 import SightingsTimeline from './SightingsTimeline';
-import { X, Building2, Globe, Users, ShieldCheck, MapPin } from 'lucide-react';
+import { X, Building2, Globe, ShieldCheck, MapPin } from 'lucide-react';
 
 interface DrawerProps {
   company: CompanySearchResult | null;
@@ -1197,7 +1161,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
 }
 ```
 
-- [ ] **Step 3: Verify TypeScript compilation**
+- [x] **Step 3: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
@@ -1212,7 +1176,7 @@ Expected: 0 errors.
 **Interfaces:**
 - Produces: Modal to trigger multi-task background scrape jobs, inspect discrete subtasks (`osm`, `wikidata`, `techparks`), and cancel in-flight jobs.
 
-- [ ] **Step 1: Write `web/src/components/drawers/ScrapeModal.tsx`**
+- [x] **Step 1: Write `web/src/components/drawers/ScrapeModal.tsx`**
 
 ```tsx
 import { useState } from 'react';
@@ -1384,109 +1348,14 @@ export default function ScrapeModal({ isOpen, onClose, defaultRegion }: ScrapeMo
 }
 ```
 
-- [ ] **Step 2: Verify TypeScript compilation**
+- [x] **Step 2: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
 
 ---
 
-### Task 8: CSV & GeoJSON Export Engine
-
-**Files:**
-- Create: `web/src/lib/export.ts`
-
-**Interfaces:**
-- Produces: Client-side file generation and download utilities for CSV and RFC 7946 GeoJSON.
-
-- [ ] **Step 1: Write `web/src/lib/export.ts`**
-
-```typescript
-import { CompanySearchResult } from '@/types';
-
-export function exportToCSV(companies: CompanySearchResult[], filename = 'nearhive-companies.csv') {
-  const headers = [
-    'Company ID',
-    'Company Name',
-    'Domain',
-    'Industry',
-    'Employees',
-    'Address',
-    'City',
-    'Latitude',
-    'Longitude',
-    'Confidence Score',
-    'Distance (meters)',
-    'Verified',
-  ];
-
-  const rows = companies.map((c) => [
-    `"${c.id}"`,
-    `"${c.name.replace(/"/g, '""')}"`,
-    `"${c.domain || ''}"`,
-    `"${c.industry || ''}"`,
-    `"${c.employee_count || ''}"`,
-    `"${c.address.replace(/"/g, '""')}"`,
-    `"${c.city || ''}"`,
-    c.lat,
-    c.lng,
-    c.confidence,
-    c.distance_meters,
-    c.verified ? 'true' : 'false',
-  ]);
-
-  const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-  downloadBlob(csvContent, filename, 'text/csv;charset=utf-8;');
-}
-
-export function exportToGeoJSON(companies: CompanySearchResult[], filename = 'nearhive-companies.geojson') {
-  const geojson = {
-    type: 'FeatureCollection',
-    features: companies.map((c) => ({
-      type: 'Feature',
-      geometry: {
-        type: 'Point',
-        coordinates: [c.lng, c.lat],
-      },
-      properties: {
-        id: c.id,
-        name: c.name,
-        domain: c.domain,
-        industry: c.industry,
-        employee_count: c.employee_count,
-        address: c.address,
-        confidence: c.confidence,
-        distance_meters: c.distance_meters,
-        verified: c.verified,
-      },
-    })),
-  };
-
-  const jsonContent = JSON.stringify(geojson, null, 2);
-  downloadBlob(jsonContent, filename, 'application/geo+json;charset=utf-8;');
-}
-
-function downloadBlob(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-```
-
-- [ ] **Step 2: Verify TypeScript compilation**
-
-Run: `cd web && pnpm type-check`  
-Expected: 0 errors.
-
----
-
-### Task 9: Main Application Page & Providers Assembly
+### Task 8: Main Application Page & Providers Assembly
 
 **Files:**
 - Create: `web/src/app/providers.tsx`
@@ -1496,7 +1365,7 @@ Expected: 0 errors.
 **Interfaces:**
 - Produces: The primary interactive application with TanStack Query providers, Leaflet map canvas, floating Cluster View mode toggle, city presets, radius slider, sidebar, and drawers.
 
-- [ ] **Step 1: Write `web/src/app/providers.tsx`**
+- [x] **Step 1: Write `web/src/app/providers.tsx`**
 
 ```tsx
 'use client';
@@ -1512,7 +1381,7 @@ export default function Providers({ children }: { children: ReactNode }) {
 }
 ```
 
-- [ ] **Step 2: Write `web/src/app/layout.tsx`**
+- [x] **Step 2: Write `web/src/app/layout.tsx`**
 
 ```tsx
 import type { Metadata } from 'next';
@@ -1535,7 +1404,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-- [ ] **Step 3: Write `web/src/app/page.tsx`**
+- [x] **Step 3: Write `web/src/app/page.tsx`**
 
 ```tsx
 'use client';
@@ -1548,9 +1417,8 @@ import ScrapeModal from '@/components/drawers/ScrapeModal';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useClusters } from '@/hooks/useClusters';
 import { useAuth } from '@/hooks/useAuth';
-import { exportToCSV, exportToGeoJSON } from '@/lib/export';
 import { CompanySearchResult } from '@/types';
-import { Play, Layers, Navigation } from 'lucide-react';
+import { Play, Layers } from 'lucide-react';
 
 const CITY_PRESETS = [
   { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
@@ -1662,8 +1530,6 @@ export default function HomePage() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelectCompany={setSelectedCompany}
-          onExportCsv={() => exportToCSV(companies)}
-          onExportGeoJson={() => exportToGeoJSON(companies)}
         />
 
         {/* Map Canvas */}
@@ -1713,14 +1579,14 @@ export default function HomePage() {
 }
 ```
 
-- [ ] **Step 4: Verify TypeScript compilation**
+- [x] **Step 4: Verify TypeScript compilation**
 
 Run: `cd web && pnpm type-check`  
 Expected: 0 errors.
 
 ---
 
-### Task 10: Vercel Production Build & Verification
+### Task 9: Vercel Production Build & Verification
 
 **Files:**
 - Create: `web/vercel.json`
@@ -1728,7 +1594,7 @@ Expected: 0 errors.
 **Interfaces:**
 - Produces: Production build verification and Vercel project configuration.
 
-- [ ] **Step 1: Write `web/vercel.json`**
+- [x] **Step 1: Write `web/vercel.json`**
 
 ```json
 {
@@ -1738,12 +1604,12 @@ Expected: 0 errors.
 }
 ```
 
-- [ ] **Step 2: Run complete production build in `web/`**
+- [x] **Step 2: Run complete production build in `web/`**
 
 Run: `cd web && pnpm build`  
 Expected: Next.js production build succeeds with all static & dynamic routes compiled.
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 Run:
 ```bash

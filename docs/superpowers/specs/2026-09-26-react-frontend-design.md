@@ -12,7 +12,7 @@
 NearHive currently serves an embedded single-file HTML/CSS/JS frontend directly from the Go binary (`internal/web/index.html`). While effective for rapid prototyping and zero-dependency deployments, it introduces significant technical debt and UX constraints as the platform matures:
 - **No Component Reusability or Modular State:** UI updates rely on imperative DOM manipulation (`innerHTML`, `getElementById`), leading to brittle view rendering and memory leaks.
 - **Manual Polling & State Management:** Background job tracking and search polling require manual `setInterval` management without error recovery, request deduplication, or window-focus refetching.
-- **Limited User Interactivity:** Lack of deep-linking, rich company verification breakdown, sightings inspection timeline, and geospatial data export (CSV/GeoJSON).
+- **Limited User Interactivity:** Lack of deep-linking, rich company verification breakdown, sightings inspection timeline, and interactive spatial density clustering.
 - **Deployment Coupling:** Serving web assets from the Go binary requires a full Docker rebuild and container restart on Railway for every minor UI change.
 
 ### 1.1 Why React & TanStack Query?
@@ -90,7 +90,7 @@ nearhive/
 │   │   ├── app/           # Next.js App Router (layout, page, providers)
 │   │   ├── components/    # Reusable UI, Map, Sidebar, Drawers
 │   │   ├── hooks/         # TanStack Query & custom hooks
-│   │   ├── lib/           # API client, query client, export utils
+│   │   ├── lib/           # API client, query client, formatting utils
 │   │   └── types/         # TypeScript API contracts
 │   ├── public/            # Static assets, marker icons
 │   ├── package.json
@@ -197,7 +197,7 @@ When a scrape job is triggered:
 - **Desktop (>= 1024px):**
   - Left Sidebar (420px fixed): Search filter, industry pills, confidence slider, company list with virtualized scrolling.
   - Right Canvas (flex-1): Fullscreen interactive Leaflet map, floating epicenter radius slider, floating PostGIS Cluster Mode toggle, and quick city preset chips.
-  - Right Slide-over Drawer (480px): Company detail breakdown, sightings timeline, and export modal.
+  - Right Slide-over Drawer (480px): Company detail breakdown and sightings timeline.
 - **Mobile (< 1024px):**
   - Fullscreen map canvas with floating bottom sheet drawer for discovered company cards.
   - Floating action buttons for quick city switching, scraper trigger, and cluster view toggle.
@@ -239,11 +239,7 @@ Clicking any company opens a sleek slide-over drawer:
 - Visual task state icons: `⏳ Pending`, `⟳ Running` (spinner), `✓ Done` (sightings count + latency in ms), `⊘ Cancelled`, `✕ Failed`.
 - **Cancel Scrape Button:** Sends `POST /api/v1/jobs/{id}/cancel`, aborting active background TCP connections in Go immediately.
 
-### 6.5 Export Discovered Data (CSV & GeoJSON)
-- **Export to CSV:** Generates downloadable CSV including Company Name, Domain, Industry, Address, City, Lat, Lng, Confidence Score, Distance (meters), and Verified status.
-- **Export to GeoJSON:** Produces RFC 7946 standard GeoJSON FeatureCollection with Point geometries and company feature properties for GIS applications (QGIS, Mapbox, ArcGIS).
-
-### 6.6 URL State & Deep-Linking
+### 6.5 URL State & Deep-Linking
 - Synchronizes search parameters with browser URL query string:
   `/?lat=12.9716&lng=77.5946&radius=15&q=fintech&company=550e8400-e29b-41d4-a716-446655440000`
 - Enables sharing direct search queries and individual company office locations across team members.
@@ -365,5 +361,5 @@ export interface AuthResponse {
 
 1. **Clean Monorepo Build:** `pnpm build` in `web/` produces zero TypeScript errors and zero Next.js route compilation warnings.
 2. **Vercel Readiness:** `next.config.ts` rewrites transparently forward `/api/*` requests to Railway, verifiable locally and on Vercel preview environments.
-3. **Feature Parity & Beyond:** Supports all existing capabilities (Leaflet map, ST_DWithin radius, PostGIS ST_ClusterKMeans, scraper trigger, cancellation) plus company detail drawers, sightings timelines, and CSV/GeoJSON export.
+3. **Feature Parity & Beyond:** Supports all existing capabilities (Leaflet map, ST_DWithin radius, PostGIS ST_ClusterKMeans, scraper trigger, cancellation) plus company detail drawers and multi-source sightings timeline audit trail.
 4. **Resilience & Testing:** All queries wrapped in TanStack Query hooks with error states, skeletons, and retry fallbacks.

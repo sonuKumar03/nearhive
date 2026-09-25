@@ -83,3 +83,25 @@ func TestSearch_RequiresAuth(t *testing.T) {
 	companies := searchResp["companies"].([]any)
 	assert.Len(t, companies, 1)
 }
+
+func TestHealthEndpoints(t *testing.T) {
+	router, _, _ := setupTestRouter()
+
+	// 1. GET /health
+	req, _ := http.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// 2. HEAD /health
+	reqHead, _ := http.NewRequest(http.MethodHead, "/health", nil)
+	wHead := httptest.NewRecorder()
+	router.ServeHTTP(wHead, reqHead)
+	assert.Equal(t, http.StatusOK, wHead.Code)
+
+	// 3. GET /health/ready
+	reqReady, _ := http.NewRequest(http.MethodGet, "/health/ready", nil)
+	wReady := httptest.NewRecorder()
+	router.ServeHTTP(wReady, reqReady)
+	assert.Equal(t, http.StatusOK, wReady.Code)
+}

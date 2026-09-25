@@ -26,3 +26,14 @@ func TestLoad_MissingRequired(t *testing.T) {
 	_, err := Load()
 	assert.Error(t, err)
 }
+
+func TestLoad_ProductionSSL(t *testing.T) {
+	os.Clearenv()
+	_ = os.Setenv("DATABASE_URL", "postgres://user:pass@ep-test.db.com/nearhive")
+	_ = os.Setenv("JWT_SECRET", "test-secret")
+	_ = os.Setenv("ENVIRONMENT", "production")
+
+	cfg, err := Load()
+	assert.NoError(t, err)
+	assert.Contains(t, cfg.DatabaseURL, "sslmode=require")
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/sonukumar/nearhive/internal/auth"
 	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/store"
+	"github.com/sonukumar/nearhive/internal/web"
 )
 
 func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
@@ -23,6 +24,10 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	companyHandler := &CompanyHandler{store: s}
 	jobHandler := &JobHandler{store: s, orchestrator: orchestrator}
 
+	// Embedded Web Dashboard
+	r.Get("/", web.Handler().ServeHTTP)
+	r.Get("/app*", web.Handler().ServeHTTP)
+
 	// Public health routes
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -35,7 +40,7 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	r.Post("/api/v1/auth/register", authHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 
-	// Protected routes
+	// Protected routes (strictly requires JWT)
 	r.Group(func(protected chi.Router) {
 		protected.Use(AuthMiddleware(authMgr))
 

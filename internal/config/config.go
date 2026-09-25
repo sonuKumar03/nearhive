@@ -30,10 +30,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
 	if !strings.Contains(dbURL, "sslmode=") {
-		sslMode := "disable"
-		if os.Getenv("ENVIRONMENT") == "production" {
-			sslMode = "require"
-		}
+		sslMode := getEnv("DB_SSL_MODE", "disable")
 		if strings.Contains(dbURL, "?") {
 			dbURL += "&sslmode=" + sslMode
 		} else {

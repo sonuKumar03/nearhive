@@ -27,6 +27,7 @@ type TechParkConfig struct {
 	Lat       float64           `yaml:"lat"`
 	Lng       float64           `yaml:"lng"`
 	Selectors TechParkSelectors `yaml:"selectors"`
+	Tenants   []string          `yaml:"tenants,omitempty"`
 }
 
 type techParksYAML struct {
@@ -75,6 +76,30 @@ func (t *TechParkScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest)
 
 	for _, park := range t.parks {
 		if !strings.EqualFold(park.Region, req.Region) {
+			continue
+		}
+
+		// Emit sightings for any configured seed tenants
+		for _, tenant := range park.Tenants {
+			tenant = strings.TrimSpace(tenant)
+			if tenant == "" {
+				continue
+			}
+			sightings = append(sightings, model.Sighting{
+				Source:      t.Name(),
+				CompanyName: tenant,
+				RawAddress:  park.Name + ", " + park.Region,
+				Lat:         park.Lat,
+				Lng:         park.Lng,
+				Metadata: model.JSONMap{
+					"tech_park": park.Name,
+					"source":    "park_directory",
+				},
+				ScrapedAt: time.Now(),
+			})
+		}
+
+		if park.URL == "" || !strings.HasPrefix(park.URL, "http") || park.Selectors.CompanyList == "" {
 			continue
 		}
 

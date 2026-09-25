@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -45,7 +46,10 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	if h.orchestrator != nil {
 		go func() {
-			sightings, err := h.orchestrator.ScrapeRegion(r.Context(), scraper.ScrapeRequest{
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			sightings, err := h.orchestrator.ScrapeRegion(bgCtx, scraper.ScrapeRequest{
 				Region:   req.Region,
 				Lat:      req.Lat,
 				Lng:      req.Lng,
@@ -61,7 +65,7 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 				job.Status = "done"
 				job.Sightings = len(sightings)
 			}
-			_ = h.store.UpdateJob(r.Context(), job)
+			_ = h.store.UpdateJob(bgCtx, job)
 		}()
 	}
 

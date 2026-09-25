@@ -1,0 +1,51 @@
+package api
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/sonukumar/nearhive/internal/auth"
+	"github.com/sonukumar/nearhive/internal/scraper"
+	"github.com/sonukumar/nearhive/internal/store"
+)
+
+func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
+	r := chi.NewRouter()
+
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+
+	authHandler := &AuthHandler{store: s, authMgr: authMgr}
+	searchHandler := &SearchHandler{store: s, history: s}
+	companyHandler := &CompanyHandler{store: s}
+	jobHandler := &JobHandler{store: s, orchestrator: orchestrator}
+
+	// Public health routes
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+		JSON(w, http.StatusOK, map[string]string{"ready": "true"})
+	})
+
+	// Public Auth endpoints
+	r.Post("/api/v1/auth/register", authHandler.Register)
+	r.Post("/api/v1/auth/login", authHandler.Login)
+
+	// Protected routes
+	r.Group(func(protected chi.Router) {
+		protected.Use(AuthMiddleware(authMgr))
+
+		protected.Get("/api/v1/search", searchHandler.Search)
+		protected.Get("/api/v1/companies/{id}", companyHandler.GetCompany)
+		protected.Get("/api/v1/companies/{id}/sightings", companyHandler.GetSightings)
+		protected.Get("/api/v1/jobs", jobHandler.ListJobs)
+		protected.Post("/api/v1/jobs/trigger", jobHandler.TriggerJob)
+		protected.Get("/api/v1/jobs/{id}", jobHandler.GetJob)
+	})
+
+	return r
+}

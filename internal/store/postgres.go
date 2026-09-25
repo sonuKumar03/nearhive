@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,26 @@ type PostgresStore struct {
 func NewPostgresStore(dsn string) (*PostgresStore, error) {
 	db, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
+		// If server does not have SSL enabled (e.g. Railway private network, local Docker), fallback to sslmode=disable
+		if strings.Contains(err.Error(), "SSL is not enabled on the server") && strings.Contains(dsn, "sslmode=require") {
+			fallbackDSN := strings.Replace(dsn, "sslmode=require", "sslmode=disable", 1)
+			if dbFallback, errFallback := sqlx.Connect("postgres", fallbackDSN); errFallback == nil {
+				dbFallback.SetMaxOpenConns(25)
+				dbFallback.SetMaxIdleConns(5)
+				dbFallback.SetConnMaxLifetime(5 * time.Minute)
+				return &PostgresStore{db: dbFallback}, nil
+			}
+		}
+		// If server requires SSL (e.g. Neon, Supabase, AWS RDS), fallback to sslmode=require
+		if strings.Contains(err.Error(), "does not support SSL-off") && strings.Contains(dsn, "sslmode=disable") {
+			fallbackDSN := strings.Replace(dsn, "sslmode=disable", "sslmode=require", 1)
+			if dbFallback, errFallback := sqlx.Connect("postgres", fallbackDSN); errFallback == nil {
+				dbFallback.SetMaxOpenConns(25)
+				dbFallback.SetMaxIdleConns(5)
+				dbFallback.SetConnMaxLifetime(5 * time.Minute)
+				return &PostgresStore{db: dbFallback}, nil
+			}
+		}
 		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
 	}
 	db.SetMaxOpenConns(25)

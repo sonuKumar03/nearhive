@@ -27,11 +27,11 @@ func TestLoad_MissingRequired(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestLoad_ProductionSSL(t *testing.T) {
+func TestLoad_CustomSSL(t *testing.T) {
 	os.Clearenv()
 	_ = os.Setenv("DATABASE_URL", "postgres://user:pass@ep-test.db.com/nearhive")
 	_ = os.Setenv("JWT_SECRET", "test-secret")
-	_ = os.Setenv("ENVIRONMENT", "production")
+	_ = os.Setenv("DB_SSL_MODE", "require")
 
 	cfg, err := Load()
 	assert.NoError(t, err)

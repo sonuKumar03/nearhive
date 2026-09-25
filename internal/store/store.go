@@ -57,6 +57,9 @@ type JobStore interface {
 	UpdateJob(ctx context.Context, job *model.ScrapeJob) error
 	GetJobByID(ctx context.Context, id uuid.UUID) (*model.ScrapeJob, error)
 	ListJobs(ctx context.Context, limit, offset int) ([]model.ScrapeJob, error)
+	CreateTask(ctx context.Context, task *model.ScrapeTask) error
+	UpdateTask(ctx context.Context, task *model.ScrapeTask) error
+	GetTasksByJobID(ctx context.Context, jobID uuid.UUID) ([]model.ScrapeTask, error)
 }
 
 type SearchHistoryStore interface {

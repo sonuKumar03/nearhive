@@ -18,6 +18,7 @@ type MockStore struct {
 	Locations     map[uuid.UUID]*model.Location
 	Sightings     map[uuid.UUID]*model.Sighting
 	Jobs          map[uuid.UUID]*model.ScrapeJob
+	Tasks         map[uuid.UUID]*model.ScrapeTask
 	SearchHistory []model.SearchHistory
 }
 
@@ -29,6 +30,7 @@ func NewMockStore() *MockStore {
 		Locations:    make(map[uuid.UUID]*model.Location),
 		Sightings:    make(map[uuid.UUID]*model.Sighting),
 		Jobs:         make(map[uuid.UUID]*model.ScrapeJob),
+		Tasks:        make(map[uuid.UUID]*model.ScrapeTask),
 	}
 }
 
@@ -281,7 +283,45 @@ func (m *MockStore) GetJobByID(_ context.Context, id uuid.UUID) (*model.ScrapeJo
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return j, nil
+	jobCopy := *j
+	jobCopy.Tasks = []model.ScrapeTask{}
+	for _, t := range m.Tasks {
+		if t.JobID == id {
+			jobCopy.Tasks = append(jobCopy.Tasks, *t)
+		}
+	}
+	return &jobCopy, nil
+}
+
+func (m *MockStore) CreateTask(_ context.Context, task *model.ScrapeTask) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if task.ID == uuid.Nil {
+		task.ID = uuid.New()
+	}
+	taskCopy := *task
+	m.Tasks[task.ID] = &taskCopy
+	return nil
+}
+
+func (m *MockStore) UpdateTask(_ context.Context, task *model.ScrapeTask) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	taskCopy := *task
+	m.Tasks[task.ID] = &taskCopy
+	return nil
+}
+
+func (m *MockStore) GetTasksByJobID(_ context.Context, jobID uuid.UUID) ([]model.ScrapeTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var res []model.ScrapeTask
+	for _, t := range m.Tasks {
+		if t.JobID == jobID {
+			res = append(res, *t)
+		}
+	}
+	return res, nil
 }
 
 func (m *MockStore) ListJobs(_ context.Context, _, _ int) ([]model.ScrapeJob, error) {

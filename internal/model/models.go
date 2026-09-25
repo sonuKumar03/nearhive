@@ -85,16 +85,30 @@ type Sighting struct {
 	ScrapedAt   time.Time  `db:"scraped_at" json:"scraped_at"`
 }
 
-type ScrapeJob struct {
+type ScrapeTask struct {
 	ID         uuid.UUID  `db:"id" json:"id"`
+	JobID      uuid.UUID  `db:"job_id" json:"job_id"`
 	Source     string     `db:"source" json:"source"`
 	Status     string     `db:"status" json:"status"`
-	Region     *string    `db:"region" json:"region,omitempty"`
 	Sightings  int        `db:"sightings" json:"sightings"`
 	Error      *string    `db:"error" json:"error,omitempty"`
+	DurationMS int64      `db:"duration_ms" json:"duration_ms"`
 	StartedAt  *time.Time `db:"started_at" json:"started_at,omitempty"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at,omitempty"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+}
+
+type ScrapeJob struct {
+	ID         uuid.UUID    `db:"id" json:"id"`
+	Source     string       `db:"source" json:"source"`
+	Status     string       `db:"status" json:"status"`
+	Region     *string      `db:"region" json:"region,omitempty"`
+	Sightings  int          `db:"sightings" json:"sightings"`
+	Error      *string      `db:"error" json:"error,omitempty"`
+	StartedAt  *time.Time   `db:"started_at" json:"started_at,omitempty"`
+	FinishedAt *time.Time   `db:"finished_at" json:"finished_at,omitempty"`
+	CreatedAt  time.Time    `db:"created_at" json:"created_at"`
+	Tasks      []ScrapeTask `db:"-" json:"tasks,omitempty"`
 }
 
 type SearchHistory struct {

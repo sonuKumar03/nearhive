@@ -234,20 +234,31 @@
           <input type="number" id="scrapeRadiusInput" min="5" max="30" value="15" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500">
         </div>
 
-        <div id="scrapeJobStatusBox" class="hidden p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+        <div id="scrapeJobStatusBox" class="hidden p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
           <div class="flex items-center justify-between text-xs">
             <span class="text-slate-400">Job Status:</span>
             <span id="scrapeJobStatusBadge" class="font-mono px-2 py-0.5 rounded font-semibold text-amber-400 bg-amber-500/10">running</span>
           </div>
-          <p id="scrapeJobMsg" class="text-[11px] text-slate-400">Querying OpenStreetMap and extracting Tech Park directories...</p>
+          <p id="scrapeJobMsg" class="text-[11px] text-slate-400">Initializing background pipeline tasks...</p>
+          
+          <!-- Subtasks Container -->
+          <div id="scrapeTasksList" class="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
+            <!-- Rendered dynamically per task -->
+          </div>
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2.5 pt-2">
-        <button onclick="closeScrapeModal()" class="px-3.5 py-1.5 text-xs font-medium rounded-xl text-slate-400 hover:text-slate-200">Cancel</button>
-        <button id="launchScrapeBtn" onclick="launchScraper()" class="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5">
-          <span>Start Scraping</span>
+      <div class="flex items-center justify-between gap-2.5 pt-2">
+        <button id="cancelScrapeBtn" onclick="cancelCurrentJob()" class="hidden px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+          <span>Cancel Scrape</span>
         </button>
+        <div class="flex items-center gap-2 ml-auto">
+          <button onclick="closeScrapeModal()" class="px-3.5 py-1.5 text-xs font-medium rounded-xl text-slate-400 hover:text-slate-200">Close</button>
+          <button id="launchScrapeBtn" onclick="launchScraper()" class="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5">
+            <span>Start Scraping</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -739,6 +750,9 @@
       document.getElementById('scrapeModal').classList.add('hidden');
     }
 
+    let currentActiveJobId = null;
+    let currentJobInterval = null;
+
     async function launchScraper() {
       if (!token) {
         alert('Please sign in or register an account to run scraper pipeline jobs.');
@@ -752,10 +766,18 @@
       const statusBadge = document.getElementById('scrapeJobStatusBadge');
       const msg = document.getElementById('scrapeJobMsg');
       const btn = document.getElementById('launchScrapeBtn');
+      const cancelBtn = document.getElementById('cancelScrapeBtn');
+      const tasksList = document.getElementById('scrapeTasksList');
 
       statusBox.classList.remove('hidden');
+      statusBadge.textContent = 'STARTING';
+      statusBadge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-amber-400 bg-amber-500/10';
+      msg.textContent = `Dispatching multi-task pipeline for ${region} (${radius_km}km)...`;
+      tasksList.innerHTML = '';
       btn.disabled = true;
       btn.classList.add('opacity-50');
+      cancelBtn.disabled = false;
+      cancelBtn.classList.remove('opacity-50', 'hidden');
 
       try {
         const res = await fetch('/api/v1/jobs/trigger', {
@@ -769,25 +791,101 @@
         const job = await res.json();
 
         if (res.ok && job.id) {
+          currentActiveJobId = job.id;
           statusBadge.textContent = 'RUNNING';
-          msg.textContent = `Scraper pipeline running for ${region} (${radius_km}km)...`;
+          msg.textContent = `Scraper pipeline running across data sources...`;
           pollJob(job.id);
         } else {
           statusBadge.textContent = 'FAILED';
+          statusBadge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-rose-400 bg-rose-500/10';
           msg.textContent = job.error || 'Failed to trigger scraper job.';
           btn.disabled = false;
           btn.classList.remove('opacity-50');
+          cancelBtn.classList.add('hidden');
         }
       } catch (err) {
         statusBadge.textContent = 'ERROR';
+        statusBadge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-rose-400 bg-rose-500/10';
         msg.textContent = 'Network error triggering scraper.';
         btn.disabled = false;
         btn.classList.remove('opacity-50');
+        cancelBtn.classList.add('hidden');
       }
     }
 
+    async function cancelCurrentJob() {
+      if (!currentActiveJobId) return;
+      const cancelBtn = document.getElementById('cancelScrapeBtn');
+      cancelBtn.disabled = true;
+      cancelBtn.classList.add('opacity-50');
+      document.getElementById('scrapeJobMsg').textContent = 'Cancelling scraper pipeline...';
+
+      try {
+        const res = await fetch(`/api/v1/jobs/${currentActiveJobId}/cancel`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          document.getElementById('scrapeJobStatusBadge').textContent = 'CANCELLED';
+          document.getElementById('scrapeJobStatusBadge').className = 'font-mono px-2 py-0.5 rounded font-semibold text-slate-400 bg-slate-500/10';
+          document.getElementById('scrapeJobMsg').textContent = 'Scraper job cancelled by user.';
+        }
+      } catch (e) {
+        document.getElementById('scrapeJobMsg').textContent = 'Error requesting cancellation.';
+      }
+    }
+
+    function renderScrapeTasks(tasks) {
+      const container = document.getElementById('scrapeTasksList');
+      if (!container || !tasks || tasks.length === 0) return;
+
+      const sourceLabels = {
+        'osm': 'OpenStreetMap Overpass',
+        'wikidata': 'Wikidata SPARQL',
+        'techparks': 'Tech Park Directories',
+        'justdial': 'Local Listings'
+      };
+
+      container.innerHTML = tasks.map(t => {
+        let icon = '<span class="text-slate-500 text-xs">⏳</span>';
+        let nameColor = 'text-slate-400';
+        let detail = `<span class="text-slate-500 font-mono text-[10px]">pending</span>`;
+
+        if (t.status === 'running') {
+          icon = '<span class="inline-block animate-spin text-amber-400 text-xs">⟳</span>';
+          nameColor = 'text-amber-200';
+          detail = `<span class="text-amber-400/80 font-mono text-[10px] animate-pulse">running...</span>`;
+        } else if (t.status === 'done') {
+          icon = '<span class="text-emerald-400 text-xs font-bold">✓</span>';
+          nameColor = 'text-emerald-200';
+          detail = `<span class="text-slate-400 font-mono text-[10px]">${t.sightings} sightings (${t.duration_ms}ms)</span>`;
+        } else if (t.status === 'cancelled') {
+          icon = '<span class="text-slate-500 text-xs">⊘</span>';
+          nameColor = 'text-slate-500 line-through';
+          detail = `<span class="text-slate-500 font-mono text-[10px]">cancelled</span>`;
+        } else if (t.status === 'failed') {
+          icon = '<span class="text-rose-400 text-xs font-bold">✕</span>';
+          nameColor = 'text-rose-300';
+          detail = `<span class="text-rose-400 font-mono text-[10px] truncate max-w-[120px]">${escapeHtml(t.error || 'failed')}</span>`;
+        }
+
+        const label = sourceLabels[t.source] || t.source.toUpperCase();
+        return `
+          <div class="flex items-center justify-between py-0.5">
+            <div class="flex items-center gap-2">
+              ${icon}
+              <span class="${nameColor} font-medium">${escapeHtml(label)}</span>
+            </div>
+            ${detail}
+          </div>
+        `;
+      }).join('');
+    }
+
     function pollJob(jobId) {
-      const interval = setInterval(async () => {
+      if (currentJobInterval) clearInterval(currentJobInterval);
+      currentJobInterval = setInterval(async () => {
         try {
           const res = await fetch(`/api/v1/jobs/${jobId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -795,22 +893,39 @@
           const job = await res.json();
 
           if (res.ok) {
-            document.getElementById('scrapeJobStatusBadge').textContent = job.status.toUpperCase();
+            const badge = document.getElementById('scrapeJobStatusBadge');
+            badge.textContent = job.status.toUpperCase();
+            if (job.tasks) {
+              renderScrapeTasks(job.tasks);
+            }
+
             if (job.status === 'done' || job.status === 'completed') {
-              clearInterval(interval);
+              clearInterval(currentJobInterval);
+              badge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-emerald-400 bg-emerald-500/10';
               document.getElementById('scrapeJobMsg').textContent = `Success! Finished scraping with ${job.sightings || 0} sightings.`;
+              document.getElementById('cancelScrapeBtn').classList.add('hidden');
+              document.getElementById('launchScrapeBtn').disabled = false;
+              document.getElementById('launchScrapeBtn').classList.remove('opacity-50');
+              searchCompanies();
+            } else if (job.status === 'cancelled') {
+              clearInterval(currentJobInterval);
+              badge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-slate-400 bg-slate-500/10';
+              document.getElementById('scrapeJobMsg').textContent = 'Scraper job was cancelled.';
+              document.getElementById('cancelScrapeBtn').classList.add('hidden');
               document.getElementById('launchScrapeBtn').disabled = false;
               document.getElementById('launchScrapeBtn').classList.remove('opacity-50');
               searchCompanies();
             } else if (job.status === 'failed') {
-              clearInterval(interval);
+              clearInterval(currentJobInterval);
+              badge.className = 'font-mono px-2 py-0.5 rounded font-semibold text-rose-400 bg-rose-500/10';
               document.getElementById('scrapeJobMsg').textContent = `Scrape job failed: ${job.error || 'Unknown error'}`;
+              document.getElementById('cancelScrapeBtn').classList.add('hidden');
               document.getElementById('launchScrapeBtn').disabled = false;
               document.getElementById('launchScrapeBtn').classList.remove('opacity-50');
             }
           }
         } catch (e) {}
-      }, 2500);
+      }, 2000);
     }
 
     function escapeHtml(str) {

@@ -105,3 +105,85 @@ func TestHealthEndpoints(t *testing.T) {
 	router.ServeHTTP(wReady, reqReady)
 	assert.Equal(t, http.StatusOK, wReady.Code)
 }
+
+func TestJobs_TriggerListGetCancel(t *testing.T) {
+	router, mockStore, authMgr := setupTestRouter()
+	token, _ := authMgr.GenerateToken(uuid.New())
+
+	// 1. Trigger a job
+	body, _ := json.Marshal(map[string]any{
+		"region":    "Bangalore",
+		"lat":       12.9716,
+		"lng":       77.5946,
+		"radius_km": 15,
+	})
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/jobs/trigger", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	var createdJob model.ScrapeJob
+	_ = json.Unmarshal(w.Body.Bytes(), &createdJob)
+	assert.NotEmpty(t, createdJob.ID)
+	assert.Equal(t, "running", createdJob.Status)
+
+	// 2. List jobs
+	reqList, _ := http.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	reqList.Header.Set("Authorization", "Bearer "+token)
+	wList := httptest.NewRecorder()
+	router.ServeHTTP(wList, reqList)
+	assert.Equal(t, http.StatusOK, wList.Code)
+
+	var listResp map[string]any
+	_ = json.Unmarshal(wList.Body.Bytes(), &listResp)
+	jobsList := listResp["jobs"].([]any)
+	assert.GreaterOrEqual(t, len(jobsList), 1)
+
+	// 3. Get job details
+	reqGet, _ := http.NewRequest(http.MethodGet, "/api/v1/jobs/"+createdJob.ID.String(), nil)
+	reqGet.Header.Set("Authorization", "Bearer "+token)
+	wGet := httptest.NewRecorder()
+	router.ServeHTTP(wGet, reqGet)
+	assert.Equal(t, http.StatusOK, wGet.Code)
+
+	var fetchedJob model.ScrapeJob
+	_ = json.Unmarshal(wGet.Body.Bytes(), &fetchedJob)
+	assert.Equal(t, createdJob.ID, fetchedJob.ID)
+
+	// Add a subtask to mockStore to verify GetJob returns tasks
+	taskID := uuid.New()
+	_ = mockStore.CreateTask(nil, &model.ScrapeTask{
+		ID:     taskID,
+		JobID:  createdJob.ID,
+		Source: "osm",
+		Status: "running",
+	})
+	reqGetWithTasks, _ := http.NewRequest(http.MethodGet, "/api/v1/jobs/"+createdJob.ID.String(), nil)
+	reqGetWithTasks.Header.Set("Authorization", "Bearer "+token)
+	wGetWithTasks := httptest.NewRecorder()
+	router.ServeHTTP(wGetWithTasks, reqGetWithTasks)
+	assert.Equal(t, http.StatusOK, wGetWithTasks.Code)
+	var fetchedJobWithTasks model.ScrapeJob
+	_ = json.Unmarshal(wGetWithTasks.Body.Bytes(), &fetchedJobWithTasks)
+	assert.Len(t, fetchedJobWithTasks.Tasks, 1)
+	assert.Equal(t, "osm", fetchedJobWithTasks.Tasks[0].Source)
+
+	// 4. Cancel the job
+	reqCancel, _ := http.NewRequest(http.MethodPost, "/api/v1/jobs/"+createdJob.ID.String()+"/cancel", nil)
+	reqCancel.Header.Set("Authorization", "Bearer "+token)
+	wCancel := httptest.NewRecorder()
+	router.ServeHTTP(wCancel, reqCancel)
+	assert.Equal(t, http.StatusOK, wCancel.Code)
+
+	var cancelResp map[string]any
+	_ = json.Unmarshal(wCancel.Body.Bytes(), &cancelResp)
+	assert.Equal(t, "job cancelled successfully", cancelResp["message"])
+
+	// Check DB state
+	storedJob, err := mockStore.GetJobByID(nil, createdJob.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, "cancelled", storedJob.Status)
+	assert.NotNil(t, storedJob.FinishedAt)
+}

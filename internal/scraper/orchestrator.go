@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/geocoder"
@@ -18,6 +19,7 @@ type Orchestrator struct {
 	geocoder    geocoder.Geocoder
 	verifier    *verifier.Engine
 	rateLimiter *RateLimiterRegistry
+	taskMgr     *TaskManager
 	maxWorkers  int
 }
 
@@ -30,12 +32,35 @@ func NewOrchestrator(s store.Store, g geocoder.Geocoder, v *verifier.Engine, max
 		geocoder:    g,
 		verifier:    v,
 		rateLimiter: NewRateLimiterRegistry(),
+		taskMgr:     NewTaskManager(),
 		maxWorkers:  maxWorkers,
 	}
 }
 
 func (o *Orchestrator) Register(s Scraper) {
 	o.scrapers = append(o.scrapers, s)
+}
+
+func (o *Orchestrator) TaskManager() *TaskManager {
+	return o.taskMgr
+}
+
+func (o *Orchestrator) finishTask(task *model.ScrapeTask, status string, sightings int, errMsg string, durationMs int64) {
+	if o.store == nil || task == nil {
+		return
+	}
+	now := time.Now()
+	task.Status = status
+	task.Sightings = sightings
+	task.FinishedAt = &now
+	task.DurationMS = durationMs
+	if errMsg != "" {
+		task.Error = &errMsg
+	}
+	// Use background context with short timeout to ensure status write succeeds even if job context cancelled
+	saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = o.store.UpdateTask(saveCtx, task)
 }
 
 func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]model.Sighting, error) {
@@ -50,6 +75,26 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 		// Graceful fallback to known major tech hubs if geocoding is unavailable or rate-limited
 		if req.Lat == 0 && req.Lng == 0 {
 			req.Lat, req.Lng = getFallbackCityCoordinates(req.Region)
+		}
+	}
+
+	// Pre-create ScrapeTask records for each active scraper if JobID is provided
+	taskMap := make(map[string]*model.ScrapeTask)
+	if req.JobID != uuid.Nil && o.store != nil {
+		for _, s := range o.scrapers {
+			if !s.Supports(req.Region) {
+				continue
+			}
+			t := &model.ScrapeTask{
+				ID:        uuid.New(),
+				JobID:     req.JobID,
+				Source:    s.Name(),
+				Status:    "pending",
+				CreatedAt: time.Now(),
+			}
+			if err := o.store.CreateTask(ctx, t); err == nil {
+				taskMap[s.Name()] = t
+			}
 		}
 	}
 
@@ -71,13 +116,57 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			task := taskMap[scraper.Name()]
+			start := time.Now()
+			if task != nil {
+				task.Status = "running"
+				task.StartedAt = &start
+				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = o.store.UpdateTask(saveCtx, task)
+				cancel()
+			}
+
+			if ctx.Err() != nil {
+				if task != nil {
+					o.finishTask(task, "cancelled", 0, "job cancelled", time.Since(start).Milliseconds())
+				}
+				return
+			}
+
 			_ = o.rateLimiter.Wait(ctx, scraper.Name())
+			if ctx.Err() != nil {
+				if task != nil {
+					o.finishTask(task, "cancelled", 0, "job cancelled", time.Since(start).Milliseconds())
+				}
+				return
+			}
+
 			res, err := scraper.Scrape(ctx, req)
+			if ctx.Err() != nil {
+				if task != nil {
+					o.finishTask(task, "cancelled", 0, "job cancelled", time.Since(start).Milliseconds())
+				}
+				return
+			}
+
 			if err != nil || res == nil {
+				if task != nil {
+					errStr := "scraper failed"
+					if err != nil {
+						errStr = err.Error()
+					}
+					o.finishTask(task, "failed", 0, errStr, time.Since(start).Milliseconds())
+				}
 				return
 			}
 
 			for i := range res.Sightings {
+				if ctx.Err() != nil {
+					if task != nil {
+						o.finishTask(task, "cancelled", 0, "job cancelled", time.Since(start).Milliseconds())
+					}
+					return
+				}
 				if res.Sightings[i].ID == uuid.Nil {
 					res.Sightings[i].ID = uuid.New()
 				}
@@ -95,7 +184,18 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 
 			if o.verifier != nil {
 				for i := range res.Sightings {
+					if ctx.Err() != nil {
+						break
+					}
 					_ = o.verifier.ProcessSighting(ctx, res.Sightings[i])
+				}
+			}
+
+			if task != nil {
+				if ctx.Err() != nil {
+					o.finishTask(task, "cancelled", 0, "job cancelled", time.Since(start).Milliseconds())
+				} else {
+					o.finishTask(task, "done", len(res.Sightings), "", time.Since(start).Milliseconds())
 				}
 			}
 
@@ -106,7 +206,7 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 	}
 
 	wg.Wait()
-	return sightings, nil
+	return sightings, ctx.Err()
 }
 
 func getFallbackCityCoordinates(region string) (float64, float64) {

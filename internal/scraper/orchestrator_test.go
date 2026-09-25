@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 	"github.com/sonukumar/nearhive/internal/store"
 	"github.com/stretchr/testify/assert"
@@ -91,3 +92,57 @@ func TestOrchestrator_SaveSightings(t *testing.T) {
 	// Ensure sightings were saved to store
 	assert.NotEmpty(t, s.Sightings)
 }
+
+func TestOrchestrator_SubtasksCreationAndCancellation(t *testing.T) {
+	s := store.NewMockStore()
+	orch := NewOrchestrator(s, nil, nil, 2)
+	jobID := uuid.New()
+
+	blockingScraper := &blockingMockScraper{
+		name:   "slow_scraper",
+		region: "Bangalore",
+	}
+	orch.Register(blockingScraper)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := orch.ScrapeRegion(ctx, ScrapeRequest{
+		JobID:    jobID,
+		Region:   "Bangalore",
+		Lat:      12.9716,
+		Lng:      77.5946,
+		RadiusKM: 10,
+	})
+
+	assert.ErrorIs(t, err, context.Canceled)
+
+	// Check that subtasks were created and cancelled
+	tasks, getErr := s.GetTasksByJobID(context.Background(), jobID)
+	assert.NoError(t, getErr)
+	assert.Len(t, tasks, 1)
+	assert.Equal(t, "slow_scraper", tasks[0].Source)
+	assert.Equal(t, "cancelled", tasks[0].Status)
+	assert.Equal(t, "job cancelled", *tasks[0].Error)
+}
+
+type blockingMockScraper struct {
+	name   string
+	region string
+}
+
+func (b *blockingMockScraper) Name() string { return b.name }
+func (b *blockingMockScraper) Supports(region string) bool { return true }
+func (b *blockingMockScraper) Scrape(ctx context.Context, _ ScrapeRequest) (*ScrapeResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(5 * time.Second):
+		return &ScrapeResult{}, nil
+	}
+}
+

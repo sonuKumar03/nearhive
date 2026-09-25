@@ -3,10 +3,12 @@ package scraper
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
 type ScrapeRequest struct {
+	JobID    uuid.UUID
 	Region   string
 	Lat      float64
 	Lng      float64

@@ -338,7 +338,14 @@ func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.Sc
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return &job, err
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := s.GetTasksByJobID(ctx, id)
+	if err == nil {
+		job.Tasks = tasks
+	}
+	return &job, nil
 }
 
 func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]model.ScrapeJob, error) {
@@ -346,6 +353,38 @@ func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]mode
 	query := `SELECT id, source, status, region, sightings, error, started_at, finished_at, created_at FROM scrape_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	err := s.db.SelectContext(ctx, &jobs, query, limit, offset)
 	return jobs, err
+}
+
+func (s *PostgresStore) CreateTask(ctx context.Context, task *model.ScrapeTask) error {
+	if task.ID == uuid.Nil {
+		task.ID = uuid.New()
+	}
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = time.Now()
+	}
+	query := `INSERT INTO scrape_tasks (id, job_id, source, status, sightings, error, duration_ms, started_at, finished_at, created_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	_, err := s.db.ExecContext(ctx, query, task.ID, task.JobID, task.Source, task.Status, task.Sightings, task.Error, task.DurationMS, task.StartedAt, task.FinishedAt, task.CreatedAt)
+	return err
+}
+
+func (s *PostgresStore) UpdateTask(ctx context.Context, task *model.ScrapeTask) error {
+	query := `UPDATE scrape_tasks SET status = $1, sightings = $2, error = $3, duration_ms = $4, started_at = $5, finished_at = $6 WHERE id = $7`
+	_, err := s.db.ExecContext(ctx, query, task.Status, task.Sightings, task.Error, task.DurationMS, task.StartedAt, task.FinishedAt, task.ID)
+	return err
+}
+
+func (s *PostgresStore) GetTasksByJobID(ctx context.Context, jobID uuid.UUID) ([]model.ScrapeTask, error) {
+	var tasks []model.ScrapeTask
+	query := `SELECT id, job_id, source, status, sightings, error, duration_ms, started_at, finished_at, created_at FROM scrape_tasks WHERE job_id = $1 ORDER BY created_at ASC`
+	err := s.db.SelectContext(ctx, &tasks, query, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		tasks = []model.ScrapeTask{}
+	}
+	return tasks, nil
 }
 
 // SearchHistoryStore implementation

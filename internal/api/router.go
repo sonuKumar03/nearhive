@@ -22,7 +22,7 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	authHandler := &AuthHandler{store: s, authMgr: authMgr}
 	searchHandler := &SearchHandler{store: s, history: s}
 	companyHandler := &CompanyHandler{store: s}
-	jobHandler := &JobHandler{store: s, orchestrator: orchestrator}
+	jobHandler := NewJobHandler(s, orchestrator, nil)
 
 	// Embedded Web Dashboard
 	r.Get("/", web.Handler().ServeHTTP)
@@ -68,6 +68,7 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 		protected.Get("/api/v1/jobs", jobHandler.ListJobs)
 		protected.Post("/api/v1/jobs/trigger", jobHandler.TriggerJob)
 		protected.Get("/api/v1/jobs/{id}", jobHandler.GetJob)
+		protected.Post("/api/v1/jobs/{id}/cancel", jobHandler.CancelJob)
 	})
 
 	return r

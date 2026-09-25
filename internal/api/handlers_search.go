@@ -98,3 +98,58 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		"companies": results,
 	})
 }
+
+func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	if latStr == "" || lngStr == "" {
+		JSONError(w, http.StatusBadRequest, "lat and lng query parameters are required", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	lat, err1 := strconv.ParseFloat(latStr, 64)
+	lng, err2 := strconv.ParseFloat(lngStr, 64)
+	if err1 != nil || err2 != nil {
+		JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	radiusKM := 15.0
+	if rStr := r.URL.Query().Get("radius"); rStr != "" {
+		if rVal, err := strconv.ParseFloat(rStr, 64); err == nil && rVal > 0 && rVal <= 100 {
+			radiusKM = rVal
+		}
+	}
+
+	k := 20
+	if kStr := r.URL.Query().Get("k"); kStr != "" {
+		if kVal, err := strconv.Atoi(kStr); err == nil && kVal > 0 && kVal <= 100 {
+			k = kVal
+		}
+	}
+
+	clusters, err := h.store.ClusterSearch(r.Context(), lat, lng, radiusKM*1000, k)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to compute spatial clusters", "INTERNAL_ERROR", nil)
+		return
+	}
+
+	totalPoints := 0
+	for _, c := range clusters {
+		totalPoints += c.Count
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"meta": map[string]any{
+			"k":             k,
+			"cluster_count": len(clusters),
+			"total_points":  totalPoints,
+			"radius_km":     radiusKM,
+			"center": map[string]float64{
+				"lat": lat,
+				"lng": lng,
+			},
+		},
+		"clusters": clusters,
+	})
+}

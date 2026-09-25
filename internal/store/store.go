@@ -44,6 +44,7 @@ type LocationStore interface {
 	UpdateLocationCoords(ctx context.Context, id uuid.UUID, lat, lng float64) error
 	Search(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error)
 	CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error)
+	ClusterSearch(ctx context.Context, lat, lng, radiusMeters float64, k int) ([]model.SpatialCluster, error)
 }
 
 type SightingStore interface {

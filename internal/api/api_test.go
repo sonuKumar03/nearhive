@@ -84,6 +84,48 @@ func TestSearch_RequiresAuth(t *testing.T) {
 	assert.Len(t, companies, 1)
 }
 
+func TestSearchClusters(t *testing.T) {
+	router, mockStore, authMgr := setupTestRouter()
+	token, _ := authMgr.GenerateToken(uuid.New())
+
+	// 1. Unauthenticated request should fail
+	reqUnauth, _ := http.NewRequest(http.MethodGet, "/api/v1/search/clusters?lat=12.9716&lng=77.5946&radius=15", nil)
+	wUnauth := httptest.NewRecorder()
+	router.ServeHTTP(wUnauth, reqUnauth)
+	assert.Equal(t, http.StatusUnauthorized, wUnauth.Code)
+
+	// 2. Missing lat/lng
+	reqMissing, _ := http.NewRequest(http.MethodGet, "/api/v1/search/clusters", nil)
+	reqMissing.Header.Set("Authorization", "Bearer "+token)
+	wMissing := httptest.NewRecorder()
+	router.ServeHTTP(wMissing, reqMissing)
+	assert.Equal(t, http.StatusBadRequest, wMissing.Code)
+
+	// 3. Seed locations
+	cID := uuid.New()
+	_ = mockStore.CreateCompany(nil, &model.Company{ID: cID, Name: "Tech Hub Corp"})
+	_ = mockStore.CreateLocation(nil, &model.Location{CompanyID: cID, Lat: 12.9716, Lng: 77.5946})
+	_ = mockStore.CreateLocation(nil, &model.Location{CompanyID: cID, Lat: 12.9720, Lng: 77.5950})
+	_ = mockStore.CreateLocation(nil, &model.Location{CompanyID: cID, Lat: 12.9730, Lng: 77.5960})
+
+	// 4. Query clusters with k=2
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/search/clusters?lat=12.9716&lng=77.5946&radius=15&k=2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	meta := resp["meta"].(map[string]any)
+	assert.Equal(t, float64(2), meta["k"])
+	assert.Equal(t, float64(3), meta["total_points"])
+
+	clusters := resp["clusters"].([]any)
+	assert.Len(t, clusters, 2)
+}
+
 func TestHealthEndpoints(t *testing.T) {
 	router, _, _ := setupTestRouter()
 

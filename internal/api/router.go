@@ -63,6 +63,7 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 		protected.Use(AuthMiddleware(authMgr))
 
 		protected.Get("/api/v1/search", searchHandler.Search)
+		protected.Get("/api/v1/search/clusters", searchHandler.SearchClusters)
 		protected.Get("/api/v1/companies/{id}", companyHandler.GetCompany)
 		protected.Get("/api/v1/companies/{id}/sightings", companyHandler.GetSightings)
 		protected.Get("/api/v1/jobs", jobHandler.ListJobs)

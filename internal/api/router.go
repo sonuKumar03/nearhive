@@ -8,7 +8,6 @@ import (
 	"github.com/sonukumar/nearhive/internal/auth"
 	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/store"
-	"github.com/sonukumar/nearhive/internal/web"
 )
 
 func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
@@ -24,9 +23,14 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	companyHandler := &CompanyHandler{store: s}
 	jobHandler := NewJobHandler(s, orchestrator, nil)
 
-	// Embedded Web Dashboard
-	r.Get("/", web.Handler().ServeHTTP)
-	r.Get("/app*", web.Handler().ServeHTTP)
+	// API Root Info
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		JSON(w, http.StatusOK, map[string]string{
+			"service": "NearHive API",
+			"status":  "running",
+			"version": "v1",
+		})
+	})
 
 	// Public health routes
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

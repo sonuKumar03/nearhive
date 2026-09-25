@@ -22,11 +22,13 @@ NearHive scrapes multiple independent sources (OpenStreetMap, Tech Park director
 The easiest way to run NearHive locally is via Docker and Make — no Go or PostgreSQL installation required:
 
 ```bash
-# 1. Start full app & PostGIS database in background
+# 1. Start full app (React Web + Go Backend API + PostGIS DB) in background
 make up
 
 # 2. View live logs
-make logs-app
+make logs       # All services
+make logs-web   # Next.js React frontend
+make logs-app   # Go NearHive application
 
 # 3. Stop containers when done
 make down
@@ -35,8 +37,9 @@ make down
 make clean
 ```
 
-The app will be available at:
-- **Web App / Dashboard**: [http://localhost:8080](http://localhost:8080)
+The stack will be available at:
+- **React Frontend**: [http://localhost:3000](http://localhost:3000)
+- **Go Backend API**: [http://localhost:8080](http://localhost:8080)
 - **Health Check**: [http://localhost:8080/health](http://localhost:8080/health)
 - **PostGIS Database**: `localhost:5432` (`postgres:postgres`)
 

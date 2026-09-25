@@ -38,6 +38,26 @@ services:
       LOG_LEVEL: info
     restart: unless-stopped
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: dev
+    container_name: nearhive-web
+    depends_on:
+      - app
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      API_URL: http://app:8080
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    restart: unless-stopped
+
 volumes:
   nearhive_pgdata:
     name: nearhive_pgdata

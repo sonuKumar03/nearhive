@@ -223,6 +223,55 @@ func (m *MockStore) CountSearch(ctx context.Context, lat, lng, radiusMeters floa
 	return len(res), err
 }
 
+func (m *MockStore) ClusterSearch(_ context.Context, lat, lng, radiusMeters float64, k int) ([]model.SpatialCluster, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if k <= 0 {
+		k = 20
+	}
+
+	var matched []model.Location
+	for _, l := range m.Locations {
+		dist := haversineDistance(lat, lng, l.Lat, l.Lng)
+		if dist <= radiusMeters {
+			matched = append(matched, *l)
+		}
+	}
+
+	if len(matched) == 0 {
+		return []model.SpatialCluster{}, nil
+	}
+
+	if k > len(matched) {
+		k = len(matched)
+	}
+
+	counts := make([]int, k)
+	sumLat := make([]float64, k)
+	sumLng := make([]float64, k)
+
+	for i, l := range matched {
+		cID := i % k
+		counts[cID]++
+		sumLat[cID] += l.Lat
+		sumLng[cID] += l.Lng
+	}
+
+	var res []model.SpatialCluster
+	for i := 0; i < k; i++ {
+		if counts[i] > 0 {
+			res = append(res, model.SpatialCluster{
+				ClusterID: i,
+				Count:     counts[i],
+				Lat:       sumLat[i] / float64(counts[i]),
+				Lng:       sumLng[i] / float64(counts[i]),
+			})
+		}
+	}
+	return res, nil
+}
+
 func (m *MockStore) SaveSightings(_ context.Context, source string, sightings []model.Sighting) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

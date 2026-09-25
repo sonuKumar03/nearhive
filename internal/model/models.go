@@ -137,3 +137,10 @@ type CompanySearchResult struct {
 	DistanceMeters float64   `db:"distance_m" json:"distance_meters"`
 	Verified       bool      `db:"verified" json:"verified"`
 }
+
+type SpatialCluster struct {
+	ClusterID int     `db:"cluster_id" json:"cluster_id"`
+	Count     int     `db:"count" json:"count"`
+	Lat       float64 `db:"lat" json:"lat"`
+	Lng       float64 `db:"lng" json:"lng"`
+}

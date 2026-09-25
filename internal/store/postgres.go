@@ -259,6 +259,50 @@ func (s *PostgresStore) CountSearch(ctx context.Context, lat, lng, radiusMeters 
 	return count, err
 }
 
+func (s *PostgresStore) ClusterSearch(ctx context.Context, lat, lng, radiusMeters float64, k int) ([]model.SpatialCluster, error) {
+	if k <= 0 {
+		k = 20
+	}
+	if k > 100 {
+		k = 100
+	}
+
+	query := `
+	WITH matched_locations AS (
+		SELECT l.coords::geometry AS geom
+		FROM locations l
+		WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+	),
+	point_count AS (
+		SELECT COUNT(*) AS total FROM matched_locations
+	),
+	clustered AS (
+		SELECT 
+			geom,
+			ST_ClusterKMeans(geom, LEAST($4, (SELECT GREATEST(total, 1) FROM point_count))) OVER() AS cluster_id
+		FROM matched_locations
+	)
+	SELECT 
+		cluster_id,
+		COUNT(*) AS count,
+		ST_Y(ST_Centroid(ST_Collect(geom))) AS lat,
+		ST_X(ST_Centroid(ST_Collect(geom))) AS lng
+	FROM clustered
+	GROUP BY cluster_id
+	ORDER BY count DESC
+	`
+
+	var clusters []model.SpatialCluster
+	err := s.db.SelectContext(ctx, &clusters, query, lng, lat, radiusMeters, k)
+	if err != nil {
+		return nil, err
+	}
+	if clusters == nil {
+		clusters = []model.SpatialCluster{}
+	}
+	return clusters, nil
+}
+
 // SightingStore implementation
 func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sightings []model.Sighting) error {
 	if len(sightings) == 0 {

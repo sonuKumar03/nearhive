@@ -107,3 +107,34 @@ func TestMerger_ConfidenceScoring(t *testing.T) {
 	assert.Len(t, locsAfter, 1) // Merged into existing location
 	assert.InDelta(t, 0.75, locsAfter[0].Confidence, 0.01)
 }
+
+func TestEngine_ProcessSighting_FiltersNonTechEntities(t *testing.T) {
+	mockStore := store.NewMockStore()
+	engine := NewEngine(mockStore, nil)
+
+	// Non-tech sighting (school)
+	schoolSighting := model.Sighting{
+		CompanyName: "Brilliant Grammar High School",
+		RawAddress:  "Ameerpet, Hyderabad",
+		Lat:         17.4435,
+		Lng:         78.4485,
+		Source:      "osm",
+	}
+	err := engine.ProcessSighting(context.Background(), schoolSighting)
+	assert.NoError(t, err)
+	// Should NOT be added to company store
+	assert.Empty(t, mockStore.Companies)
+
+	// Tech company sighting
+	techSighting := model.Sighting{
+		CompanyName: "Persistent Systems",
+		RawAddress:  "Senapati Bapat Road, Pune",
+		Lat:         18.5204,
+		Lng:         73.8567,
+		Source:      "wikidata",
+	}
+	err = engine.ProcessSighting(context.Background(), techSighting)
+	assert.NoError(t, err)
+	// Should be added to company store
+	assert.Len(t, mockStore.Companies, 1)
+}

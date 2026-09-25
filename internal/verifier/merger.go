@@ -76,6 +76,7 @@ func (m *Merger) MergeSighting(ctx context.Context, s model.Sighting, match *Mat
 
 func getSourceWeight(source string) float64 {
 	weights := map[string]float64{
+		"wikidata":  0.45,
 		"techpark":  0.40,
 		"osm":       0.35,
 		"google":    0.35,

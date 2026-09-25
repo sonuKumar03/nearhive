@@ -81,6 +81,7 @@ func serveCmd() *cobra.Command {
 			// Scrapers & Orchestrator
 			orchestrator := scraper.NewOrchestrator(dbStore, geo, verifEngine, cfg.MaxScraperWorkers)
 			orchestrator.Register(sources.NewOSMScraper())
+			orchestrator.Register(sources.NewWikidataScraper())
 			orchestrator.Register(sources.NewJustDialScraper())
 			if cfg.GooglePlacesKey != "" {
 				orchestrator.Register(sources.NewGooglePlacesScraper(cfg.GooglePlacesKey))
@@ -154,7 +155,11 @@ func scrapeCmd() *cobra.Command {
 			verifEngine := verifier.NewEngine(dbStore, nom)
 			orchestrator := scraper.NewOrchestrator(dbStore, nom, verifEngine, cfg.MaxScraperWorkers)
 			orchestrator.Register(sources.NewOSMScraper())
+			orchestrator.Register(sources.NewWikidataScraper())
 			orchestrator.Register(sources.NewJustDialScraper())
+			if parks, err := sources.LoadTechParksFromFile("config/techparks.yaml"); err == nil {
+				orchestrator.Register(sources.NewTechParkScraper(parks))
+			}
 
 			log.Printf("Starting scrape for region: %s (radius: %.1f km)...", region, radius)
 			sightings, err := orchestrator.ScrapeRegion(context.Background(), scraper.ScrapeRequest{

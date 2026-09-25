@@ -136,7 +136,6 @@ func (o *OSMScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*sc
 		if name == "" {
 			continue
 		}
-
 		lat := el.Lat
 		lng := el.Lon
 		if lat == 0 && lng == 0 && el.Center != nil {
@@ -144,6 +143,11 @@ func (o *OSMScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*sc
 			lng = el.Center.Lon
 		}
 		if lat == 0 && lng == 0 {
+			continue
+		}
+
+		// Filter out non-tech amenities (e.g. schools, clinics, places of worship)
+		if amenity := el.Tags["amenity"]; amenity != "" && amenity != "coworking_space" {
 			continue
 		}
 

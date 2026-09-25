@@ -5,11 +5,13 @@ import MapContainer from '@/components/map/MapContainer';
 import Sidebar from '@/components/sidebar/Sidebar';
 import CompanyDetailDrawer from '@/components/drawers/CompanyDetailDrawer';
 import ScrapeModal from '@/components/drawers/ScrapeModal';
+import BackgroundScrapeWidget from '@/components/scrapers/BackgroundScrapeWidget';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useClusters } from '@/hooks/useClusters';
+import { useScrapeJob } from '@/hooks/useScrapeJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { CompanySearchResult } from '@/types';
-import { Play, Layers } from 'lucide-react';
+import { Play, Layers, RefreshCw } from 'lucide-react';
 
 const CITY_PRESETS = [
   { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
@@ -27,9 +29,13 @@ export default function HomePage() {
   const [isClusterMode, setIsClusterMode] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   // Initialize guest session
   useAuth();
+
+  // Track active background scraping job
+  const { data: activeJob } = useScrapeJob(activeJobId);
 
   const { data: searchData, isLoading: loadingCompanies } = useCompanies({
     lat: center.lat,
@@ -51,6 +57,7 @@ export default function HomePage() {
   const companies = searchData?.companies || [];
   const clusters = clusterData?.clusters || [];
   const totalCount = searchData?.meta?.total ?? companies.length;
+  const isJobRunning = activeJob?.status === 'running' || activeJob?.status === 'pending';
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 select-none">
@@ -89,6 +96,21 @@ export default function HomePage() {
 
         {/* Header Right Controls */}
         <div className="flex items-center gap-3">
+          {/* Active Background Scraper Header Pill */}
+          {activeJob && isJobRunning && (
+            <button
+              onClick={() => setIsScrapeOpen(true)}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/20 transition-all cursor-pointer animate-pulse"
+              title="Click to view full scraper tasks"
+            >
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span className="font-semibold">Crawling {activeJob.region}...</span>
+              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold">
+                {activeJob.sightings} sightings
+              </span>
+            </button>
+          )}
+
           {/* Radius Slider */}
           <div className="flex items-center gap-2 bg-slate-950/80 px-2.5 py-1 rounded-xl border border-slate-800">
             <span className="text-xs text-slate-400 font-medium">Radius:</span>
@@ -164,7 +186,18 @@ export default function HomePage() {
           isOpen={isScrapeOpen}
           onClose={() => setIsScrapeOpen(false)}
           defaultRegion="Bangalore"
+          activeJobId={activeJobId}
+          setActiveJobId={setActiveJobId}
         />
+
+        {/* Floating Background Scraper Widget */}
+        {!isScrapeOpen && (
+          <BackgroundScrapeWidget
+            jobId={activeJobId}
+            onOpenDetails={() => setIsScrapeOpen(true)}
+            onDismiss={() => setActiveJobId(null)}
+          />
+        )}
       </div>
     </div>
   );

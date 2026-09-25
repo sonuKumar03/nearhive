@@ -32,8 +32,26 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	r.Head("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
-		JSON(w, http.StatusOK, map[string]string{"ready": "true"})
+		if pg, ok := s.(*store.PostgresStore); ok && pg != nil {
+			if err := pg.DB().PingContext(r.Context()); err != nil {
+				JSONError(w, http.StatusServiceUnavailable, "database unavailable", "SERVICE_UNAVAILABLE", nil)
+				return
+			}
+		}
+		JSON(w, http.StatusOK, map[string]string{"ready": "true", "database": "connected"})
+	})
+	r.Head("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+		if pg, ok := s.(*store.PostgresStore); ok && pg != nil {
+			if err := pg.DB().PingContext(r.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 
 	// Public Auth endpoints

@@ -10,8 +10,12 @@ import (
 
 // SeedInitialData populates verified tech companies in Bangalore/Hyderabad if none exist.
 func SeedInitialData(ctx context.Context, s Store) error {
+	pg, ok := s.(*PostgresStore)
+	if !ok {
+		return nil
+	}
 	var count int
-	if err := s.(*PostgresStore).db.GetContext(ctx, &count, "SELECT COUNT(*) FROM companies"); err != nil {
+	if err := pg.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM companies"); err != nil {
 		return err
 	}
 	if count > 0 {

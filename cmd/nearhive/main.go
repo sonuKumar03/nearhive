@@ -64,6 +64,9 @@ func serveCmd() *cobra.Command {
 				log.Fatalf("failed to run database migrations: %v", err)
 			}
 
+			// Seed initial tech hub data if empty
+			_ = store.SeedInitialData(context.Background(), dbStore)
+
 			// Geocoders
 			nom := geocoder.NewNominatim(cfg.NominatimURL, nil)
 			var googleGeo *geocoder.Google

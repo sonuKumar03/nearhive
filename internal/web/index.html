@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NearHive 🐝 — Scalable Tech Company Locator & Verification Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            amber: {
+              400: '#fbbf24',
+              500: '#f59e0b',
+              600: '#d97706',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom Leaflet Map styling */
+    .leaflet-popup-content-wrapper {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-radius: 0.75rem !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+    }
+    .leaflet-popup-tip {
+      background: #0f172a !important;
+    }
+    .leaflet-container {
+      background: #090d16 !important;
+      font-family: 'Inter', sans-serif !important;
+    }
+    /* Pulse ring for epicenter */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 0.2; }
+      100% { transform: scale(0.9); opacity: 0.8; }
+    }
+    .epicenter-pulse {
+      animation: pulse-ring 2.5s infinite ease-in-out;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.4);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 0.7);
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col overflow-hidden font-sans antialiased select-none">
+
+  <!-- TOP NAVIGATION HEADER -->
+  <header class="h-16 bg-slate-900/90 border-b border-slate-800/80 backdrop-blur-md px-4 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-xl shadow-lg shadow-amber-500/20">
+          🐝
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-lg tracking-tight bg-gradient-to-r from-amber-200 to-amber-500 bg-clip-text text-transparent">NearHive</span>
+            <span class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">POSTGIS SPATIAL</span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-medium">Verified Tech Company Geolocation Engine</p>
+        </div>
+      </div>
+
+      <div class="h-6 w-px bg-slate-800 hidden md:block"></div>
+
+      <!-- Quick Preset Cities -->
+      <div class="hidden lg:flex items-center gap-1.5">
+        <button onclick="setCity(12.9716, 77.5946, 'Bangalore')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Bangalore</button>
+        <button onclick="setCity(17.3850, 78.4867, 'Hyderabad')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Hyderabad</button>
+        <button onclick="setCity(18.5204, 73.8567, 'Pune')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Pune</button>
+        <button onclick="locateUser()" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-colors border border-amber-500/20 flex items-center gap-1">
+          <span>📍</span> Locate Me
+        </button>
+      </div>
+    </div>
+
+    <!-- Center/Right Search Radius and Controls -->
+    <div class="flex items-center gap-3">
+      <!-- Radius Slider Control -->
+      <div class="flex items-center gap-2.5 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800">
+        <span class="text-xs text-slate-400 font-medium flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <circle cx="12" cy="12" r="9" stroke-width="2"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v9l4 4"/>
+          </svg>
+          Radius:
+        </span>
+        <input type="range" id="radiusSlider" min="1" max="30" value="15" step="1" oninput="onRadiusChange(this.value)" class="w-24 md:w-32 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+        <span id="radiusLabel" class="text-xs font-mono font-bold text-amber-400 min-w-[42px]">15 km</span>
+      </div>
+
+      <!-- Scrape Pipeline Action -->
+      <button onclick="openScrapeModal()" class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/20 transition-all active:scale-95">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span>Scrape Tech Hub</span>
+      </button>
+
+      <!-- Auth User Pill -->
+      <div id="authContainer">
+        <button onclick="openAuthModal()" id="authBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 transition-colors">
+          <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span id="authLabel">Sign In</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN INTERACTIVE VIEW -->
+  <div class="flex-1 flex relative overflow-hidden">
+
+    <!-- COLLAPSIBLE COMPANY SIDEBAR -->
+    <aside id="sidebar" class="w-full sm:w-96 md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 transition-all duration-300 shrink-0">
+      
+      <!-- Search & Filters Header -->
+      <div class="p-3.5 border-b border-slate-800/80 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-sm text-slate-200">Discovered Tech Offices</span>
+            <span id="companyCountBadge" class="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700">0</span>
+          </div>
+          <button onclick="toggleSidebar()" class="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors" title="Toggle Sidebar">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Filter Input -->
+        <div class="relative">
+          <input type="text" id="filterInput" oninput="filterCompanies(this.value)" placeholder="Filter by company or industry..." class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-1.5 pl-8 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/50 transition-colors">
+          <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+      </div>
+
+      <!-- Company Cards List Container -->
+      <div id="companyList" class="flex-1 overflow-y-auto p-3 space-y-2.5 divide-y divide-slate-800/40">
+        <!-- Rendered dynamically -->
+        <div id="loadingState" class="py-16 text-center space-y-3">
+          <div class="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p class="text-xs text-slate-400 font-medium">Querying PostGIS spatial index...</p>
+        </div>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="p-2.5 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between bg-slate-950/50">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          ST_DWithin Spatial Index
+        </span>
+        <span id="centerCoordsLabel" class="font-mono text-[10px] text-slate-400">12.9716, 77.5946</span>
+      </div>
+    </aside>
+
+    <!-- FLOATING SIDEBAR TOGGLE BUTTON (when sidebar is closed) -->
+    <button id="sidebarOpenBtn" onclick="toggleSidebar()" class="hidden absolute top-4 left-4 z-20 bg-slate-900 border border-slate-700/80 p-2.5 rounded-xl shadow-xl text-slate-200 hover:text-amber-400 transition-all hover:scale-105">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+      </svg>
+    </button>
+
+    <!-- LEAFLET MAP CANVAS -->
+    <div id="map" class="flex-1 h-full z-0"></div>
+
+  </div>
+
+  <!-- SCRAPE TRIGGER MODAL -->
+  <div id="scrapeModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">🕷️</span>
+          <div>
+            <h3 class="font-bold text-slate-100 text-base">Run Scraper Pipeline</h3>
+            <p class="text-xs text-slate-400">Multi-source: OSM + Tech Parks + JustDial</p>
+          </div>
+        </div>
+        <button onclick="closeScrapeModal()" class="text-slate-400 hover:text-slate-200">✕</button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Target Region / Tech Hub</label>
+          <select id="scrapeRegionSelect" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500">
+            <option value="Bangalore">Bangalore (Electronic City, Whitefield, Outer Ring Road)</option>
+            <option value="Hyderabad">Hyderabad (HITEC City, Gachibowli, Financial Dist)</option>
+            <option value="Pune">Pune (Hinjawadi, Magarpatta Cybercity)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Search Radius (km)</label>
+          <input type="number" id="scrapeRadiusInput" min="5" max="30" value="15" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500">
+        </div>
+
+        <div id="scrapeJobStatusBox" class="hidden p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400">Job Status:</span>
+            <span id="scrapeJobStatusBadge" class="font-mono px-2 py-0.5 rounded font-semibold text-amber-400 bg-amber-500/10">running</span>
+          </div>
+          <p id="scrapeJobMsg" class="text-[11px] text-slate-400">Querying OpenStreetMap and extracting Tech Park directories...</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2.5 pt-2">
+        <button onclick="closeScrapeModal()" class="px-3.5 py-1.5 text-xs font-medium rounded-xl text-slate-400 hover:text-slate-200">Cancel</button>
+        <button id="launchScrapeBtn" onclick="launchScraper()" class="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5">
+          <span>Start Scraping</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTHENTICATION MODAL -->
+  <div id="authModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-5 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 font-bold">🐝</div>
+          <h3 id="authModalTitle" class="font-bold text-slate-100 text-base">Sign In to NearHive</h3>
+        </div>
+        <button onclick="closeAuthModal()" class="text-slate-400 hover:text-slate-200">✕</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="grid grid-cols-2 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+        <button id="tabLogin" onclick="setAuthTab('login')" class="py-1.5 font-medium rounded-lg bg-slate-800 text-amber-400 shadow">Sign In</button>
+        <button id="tabRegister" onclick="setAuthTab('register')" class="py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200">Register</button>
+      </div>
+
+      <form onsubmit="handleAuthSubmit(event)" class="space-y-3.5">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Email</label>
+          <input type="email" id="authEmail" required placeholder="you@company.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+          <input type="password" id="authPassword" required minlength="6" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500">
+        </div>
+        <div id="authError" class="text-xs text-rose-400 hidden"></div>
+        <button type="submit" id="authSubmitBtn" class="w-full py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all">Sign In</button>
+        <div class="relative flex py-1 items-center">
+          <div class="flex-grow border-t border-slate-800"></div>
+          <span class="flex-shrink mx-2 text-[10px] text-slate-500 uppercase tracking-wider">or</span>
+          <div class="flex-grow border-t border-slate-800"></div>
+        </div>
+        <button type="button" onclick="loginDemo()" class="w-full py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all flex items-center justify-center gap-1.5">
+          <span>⚡ Instant Demo Access</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script>
+    // State
+    let currentLat = 12.9716;
+    let currentLng = 77.5946;
+    let currentRadiusKM = 15;
+    let allCompanies = [];
+    let map = null;
+    let epicenterMarker = null;
+    let radiusCircle = null;
+    let companyMarkersLayer = null;
+    let debounceTimer = null;
+    let authMode = 'login';
+    let token = localStorage.getItem('nearhive_token') || '';
+    let currentUser = null;
+
+    try {
+      currentUser = JSON.parse(localStorage.getItem('nearhive_user') || 'null');
+    } catch(e) {
+      currentUser = null;
+    }
+
+    // Initialize Application
+    window.addEventListener('DOMContentLoaded', async () => {
+      initMap();
+      if (!token) {
+        await loginDemo();
+      } else {
+        updateAuthUI();
+        searchCompanies();
+      }
+    });
+
+    async function loginDemo() {
+      const email = 'guest@nearhive.com';
+      const password = 'guestpassword123';
+      try {
+        let res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) {
+          res = await fetch('/api/v1/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+        }
+        const data = await res.json();
+        if (data.token) {
+          token = data.token;
+          currentUser = data.user || { email };
+          localStorage.setItem('nearhive_token', token);
+          localStorage.setItem('nearhive_user', JSON.stringify(currentUser));
+        }
+      } catch(e) {
+        console.warn('Demo login bypass:', e);
+      }
+      updateAuthUI();
+      closeAuthModal();
+      searchCompanies();
+    }
+
+
+    // 1. Map Initialization (Leaflet + CartoDB DarkMatter)
+    function initMap() {
+      map = L.map('map', {
+        center: [currentLat, currentLng],
+        zoom: 12,
+        zoomControl: false,
+      });
+
+      // Zoom controls in bottom right
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      // CartoDB Dark Matter tile layer
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+        maxZoom: 19,
+        subdomains: 'abcd',
+      }).addTo(map);
+
+      companyMarkersLayer = L.layerGroup().addTo(map);
+
+      // Epicenter custom icon
+      const epicenterIcon = L.divIcon({
+        className: 'epicenter-marker',
+        html: `
+          <div class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4">
+            <div class="absolute w-8 h-8 rounded-full bg-amber-500/30 epicenter-pulse"></div>
+            <div class="w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950 shadow-lg shadow-amber-500/50"></div>
+          </div>
+        `,
+        iconSize: [32, 32],
+      });
+
+      // Draggable Epicenter Marker
+      epicenterMarker = L.marker([currentLat, currentLng], {
+        icon: epicenterIcon,
+        draggable: true,
+      }).addTo(map);
+
+      epicenterMarker.on('dragend', (e) => {
+        const pos = e.target.getLatLng();
+        setEpicenter(pos.lat, pos.lng);
+      });
+
+      // Epicenter Radius Circle
+      radiusCircle = L.circle([currentLat, currentLng], {
+        radius: currentRadiusKM * 1000,
+        color: '#f59e0b',
+        weight: 1.5,
+        opacity: 0.8,
+        fillColor: '#f59e0b',
+        fillOpacity: 0.07,
+        dashArray: '4, 6',
+      }).addTo(map);
+
+      // Click on map to reposition epicenter
+      map.on('click', (e) => {
+        setEpicenter(e.latlng.lat, e.latlng.lng);
+      });
+    }
+
+    function setEpicenter(lat, lng) {
+      currentLat = lat;
+      currentLng = lng;
+      epicenterMarker.setLatLng([lat, lng]);
+      radiusCircle.setLatLng([lat, lng]);
+      document.getElementById('centerCoordsLabel').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      searchCompanies();
+    }
+
+    function onRadiusChange(val) {
+      currentRadiusKM = parseFloat(val);
+      document.getElementById('radiusLabel').textContent = `${currentRadiusKM} km`;
+      if (radiusCircle) {
+        radiusCircle.setRadius(currentRadiusKM * 1000);
+      }
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        searchCompanies();
+      }, 300);
+    }
+
+    function setCity(lat, lng, name) {
+      currentLat = lat;
+      currentLng = lng;
+      map.flyTo([lat, lng], 12, { duration: 1.2 });
+      setEpicenter(lat, lng);
+    }
+
+    function locateUser() {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          setCity(pos.coords.latitude, pos.coords.longitude, 'Current Location');
+        }, (err) => {
+          alert('Could not retrieve your location: ' + err.message);
+        });
+      } else {
+        alert('Geolocation is not supported by your browser.');
+      }
+    }
+
+    // 2. Spatial Search API Call
+    async function searchCompanies() {
+      const listContainer = document.getElementById('companyList');
+      listContainer.innerHTML = `
+        <div class="py-16 text-center space-y-3">
+          <div class="w-7 h-7 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p class="text-xs text-slate-400 font-medium">Scanning radius via PostGIS ST_DWithin...</p>
+        </div>
+      `;
+
+      companyMarkersLayer.clearLayers();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      try {
+        const res = await fetch(`/api/v1/search?lat=${currentLat}&lng=${currentLng}&radius=${currentRadiusKM}`, { headers });
+        const data = await res.json();
+
+        if (res.ok && data.companies) {
+          allCompanies = data.companies;
+          renderCompanies(allCompanies);
+          renderMarkers(allCompanies);
+        } else {
+          allCompanies = [];
+          renderEmptyState();
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+        listContainer.innerHTML = `
+          <div class="p-6 text-center text-xs text-rose-400">
+            Failed to query companies. Please check your network or try again.
+          </div>
+        `;
+      }
+    }
+
+    // 3. Render Company Cards in Sidebar
+    function renderCompanies(companies) {
+      const listContainer = document.getElementById('companyList');
+      document.getElementById('companyCountBadge').textContent = companies.length;
+
+      if (!companies || companies.length === 0) {
+        renderEmptyState();
+        return;
+      }
+
+      listContainer.innerHTML = companies.map(c => {
+        const confPercent = Math.round((c.confidence || 0.8) * 100);
+        const confColor = confPercent >= 80 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 
+                          confPercent >= 60 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 
+                          'text-slate-400 bg-slate-500/10 border-slate-500/20';
+
+        return `
+          <div class="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-800/60 border border-slate-800/80 transition-all group space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h4 class="font-semibold text-xs text-slate-100 group-hover:text-amber-300 transition-colors">${escapeHtml(c.name)}</h4>
+                <div class="flex items-center gap-1.5 mt-1">
+                  ${c.industry ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">${escapeHtml(c.industry)}</span>` : ''}
+                  ${c.employee_count ? `<span class="text-[10px] text-slate-400 font-mono">👥 ${escapeHtml(c.employee_count)}</span>` : ''}
+                </div>
+              </div>
+              <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${confColor}">
+                ${confPercent}% Conf
+              </span>
+            </div>
+
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              📍 ${escapeHtml(c.address || 'Address registered')}
+            </p>
+
+            <div class="flex items-center justify-between pt-1 border-t border-slate-800/50 text-[11px]">
+              <span class="text-slate-500 font-mono text-[10px]">
+                ${c.distance_km ? `${c.distance_km.toFixed(1)} km away` : 'Within radius'}
+              </span>
+              <button onclick="focusCompany(${c.lat}, ${c.lng}, '${escapeHtml(c.name)}')" class="text-amber-400 hover:text-amber-300 font-medium text-[11px] flex items-center gap-1">
+                <span>View on map</span> ›
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderEmptyState() {
+      const listContainer = document.getElementById('companyList');
+      document.getElementById('companyCountBadge').textContent = '0';
+      listContainer.innerHTML = `
+        <div class="py-14 px-6 text-center space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-slate-800/60 flex items-center justify-center text-2xl mx-auto border border-slate-700/50">
+            🔍
+          </div>
+          <div class="space-y-1">
+            <h4 class="font-semibold text-xs text-slate-200">No Tech Offices in this Radius</h4>
+            <p class="text-[11px] text-slate-400 leading-relaxed">Expand the radius slider or run our automated scraper to discover tech companies in this hub.</p>
+          </div>
+          <button onclick="openScrapeModal()" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-all">
+            Run Scraper for this Hub
+          </button>
+        </div>
+      `;
+    }
+
+    // 4. Render Markers on Leaflet Map
+    function renderMarkers(companies) {
+      if (!companies) return;
+
+      companies.forEach(c => {
+        if (!c.lat || !c.lng) return;
+
+        const conf = Math.round((c.confidence || 0.8) * 100);
+        const markerColor = conf >= 80 ? '#10b981' : conf >= 60 ? '#f59e0b' : '#64748b';
+
+        const customIcon = L.divIcon({
+          className: 'company-pin',
+          html: `
+            <div class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60" style="background-color: ${markerColor}">
+              <span class="text-xs">🏢</span>
+            </div>
+          `,
+          iconSize: [28, 28],
+        });
+
+        const marker = L.marker([c.lat, c.lng], { icon: customIcon });
+
+        const popupContent = `
+          <div class="space-y-2 p-1 min-w-[200px]">
+            <div class="flex items-start justify-between gap-2">
+              <h4 class="font-bold text-sm text-slate-100">${escapeHtml(c.name)}</h4>
+              <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">${conf}%</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-tight">${escapeHtml(c.address || '')}</p>
+            ${c.industry ? `<div class="text-[10px] text-slate-400">Industry: <span class="text-slate-200">${escapeHtml(c.industry)}</span></div>` : ''}
+          </div>
+        `;
+
+        marker.bindPopup(popupContent);
+        companyMarkersLayer.addLayer(marker);
+      });
+    }
+
+    function focusCompany(lat, lng, name) {
+      map.flyTo([lat, lng], 15, { duration: 1.0 });
+    }
+
+    function filterCompanies(q) {
+      q = q.toLowerCase().trim();
+      if (!q) {
+        renderCompanies(allCompanies);
+        return;
+      }
+      const filtered = allCompanies.filter(c => 
+        (c.name && c.name.toLowerCase().includes(q)) || 
+        (c.industry && c.industry.toLowerCase().includes(q)) ||
+        (c.address && c.address.toLowerCase().includes(q))
+      );
+      renderCompanies(filtered);
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      const openBtn = document.getElementById('sidebarOpenBtn');
+      if (sidebar.classList.contains('-ml-full') || sidebar.classList.contains('hidden')) {
+        sidebar.classList.remove('hidden', '-ml-full');
+        openBtn.classList.add('hidden');
+      } else {
+        sidebar.classList.add('hidden');
+        openBtn.classList.remove('hidden');
+      }
+      setTimeout(() => map.invalidateSize(), 300);
+    }
+
+    // 5. Authentication Handlers
+    function updateAuthUI() {
+      const authLabel = document.getElementById('authLabel');
+      if (currentUser && currentUser.email) {
+        authLabel.textContent = currentUser.email.split('@')[0];
+        document.getElementById('authBtn').onclick = logout;
+        document.getElementById('authBtn').title = 'Click to Sign Out (' + currentUser.email + ')';
+      } else {
+        authLabel.textContent = 'Sign In';
+        document.getElementById('authBtn').onclick = openAuthModal;
+      }
+    }
+
+    function openAuthModal() {
+      document.getElementById('authModal').classList.remove('hidden');
+    }
+
+    function closeAuthModal() {
+      document.getElementById('authModal').classList.add('hidden');
+    }
+
+    function setAuthTab(tab) {
+      authMode = tab;
+      const tabLogin = document.getElementById('tabLogin');
+      const tabRegister = document.getElementById('tabRegister');
+      const title = document.getElementById('authModalTitle');
+      const submit = document.getElementById('authSubmitBtn');
+      const err = document.getElementById('authError');
+      err.classList.add('hidden');
+
+      if (tab === 'login') {
+        tabLogin.className = 'py-1.5 font-medium rounded-lg bg-slate-800 text-amber-400 shadow';
+        tabRegister.className = 'py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200';
+        title.textContent = 'Sign In to NearHive';
+        submit.textContent = 'Sign In';
+      } else {
+        tabRegister.className = 'py-1.5 font-medium rounded-lg bg-slate-800 text-amber-400 shadow';
+        tabLogin.className = 'py-1.5 font-medium rounded-lg text-slate-400 hover:text-slate-200';
+        title.textContent = 'Create NearHive Account';
+        submit.textContent = 'Create Account';
+      }
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('authEmail').value;
+      const password = document.getElementById('authPassword').value;
+      const errBox = document.getElementById('authError');
+      errBox.classList.add('hidden');
+
+      const endpoint = authMode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.token) {
+          token = data.token;
+          currentUser = data.user || { email };
+          localStorage.setItem('nearhive_token', token);
+          localStorage.setItem('nearhive_user', JSON.stringify(currentUser));
+          updateAuthUI();
+          closeAuthModal();
+          searchCompanies();
+        } else {
+          errBox.textContent = data.error || 'Authentication failed. Please verify credentials.';
+          errBox.classList.remove('hidden');
+        }
+      } catch (err) {
+        errBox.textContent = 'Network error during authentication.';
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      if (confirm('Sign out of NearHive?')) {
+        token = '';
+        currentUser = null;
+        localStorage.removeItem('nearhive_token');
+        localStorage.removeItem('nearhive_user');
+        updateAuthUI();
+        searchCompanies();
+      }
+    }
+
+    // 6. Scraper Job Execution Modal
+    function openScrapeModal() {
+      document.getElementById('scrapeModal').classList.remove('hidden');
+    }
+
+    function closeScrapeModal() {
+      document.getElementById('scrapeModal').classList.add('hidden');
+    }
+
+    async function launchScraper() {
+      if (!token) {
+        alert('Please sign in or register an account to run scraper pipeline jobs.');
+        openAuthModal();
+        return;
+      }
+
+      const region = document.getElementById('scrapeRegionSelect').value;
+      const radius_km = parseFloat(document.getElementById('scrapeRadiusInput').value) || 15;
+      const statusBox = document.getElementById('scrapeJobStatusBox');
+      const statusBadge = document.getElementById('scrapeJobStatusBadge');
+      const msg = document.getElementById('scrapeJobMsg');
+      const btn = document.getElementById('launchScrapeBtn');
+
+      statusBox.classList.remove('hidden');
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+
+      try {
+        const res = await fetch('/api/v1/jobs/trigger', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ region, radius_km })
+        });
+        const job = await res.json();
+
+        if (res.ok && job.id) {
+          statusBadge.textContent = 'RUNNING';
+          msg.textContent = `Scraper pipeline running for ${region} (${radius_km}km)...`;
+          pollJob(job.id);
+        } else {
+          statusBadge.textContent = 'FAILED';
+          msg.textContent = job.error || 'Failed to trigger scraper job.';
+          btn.disabled = false;
+          btn.classList.remove('opacity-50');
+        }
+      } catch (err) {
+        statusBadge.textContent = 'ERROR';
+        msg.textContent = 'Network error triggering scraper.';
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+      }
+    }
+
+    function pollJob(jobId) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/v1/jobs/${jobId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const job = await res.json();
+
+          if (res.ok) {
+            document.getElementById('scrapeJobStatusBadge').textContent = job.status.toUpperCase();
+            if (job.status === 'completed') {
+              clearInterval(interval);
+              document.getElementById('scrapeJobMsg').textContent = `Success! Finished scraping with ${job.sightings || 0} sightings.`;
+              document.getElementById('launchScrapeBtn').disabled = false;
+              document.getElementById('launchScrapeBtn').classList.remove('opacity-50');
+              searchCompanies();
+            } else if (job.status === 'failed') {
+              clearInterval(interval);
+              document.getElementById('scrapeJobMsg').textContent = `Scrape job failed: ${job.error || 'Unknown error'}`;
+              document.getElementById('launchScrapeBtn').disabled = false;
+              document.getElementById('launchScrapeBtn').classList.remove('opacity-50');
+            }
+          }
+        } catch (e) {}
+      }, 2500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>

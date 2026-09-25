@@ -2,13 +2,14 @@
 builder = "DOCKERFILE"
 dockerfilePath = "./Dockerfile"
 watchPatterns = [
-  "cmd/**",
-  "internal/**",
-  "migrations/**",
-  "config/**",
-  "go.mod",
-  "go.sum",
-  "Dockerfile"
+  "**",
+  "!**/*.md",
+  "!docs/**",
+  "!Makefile",
+  "!docker-compose.yml",
+  "!.github/**",
+  "!.gitignore",
+  "!.dockerignore"
 ]
 
 [deploy]

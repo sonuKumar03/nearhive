@@ -12,6 +12,11 @@ NearHive scrapes multiple independent sources (OpenStreetMap, Tech Park director
 - 🔐 **Secure & Private**: JWT authentication, bcrypt passwords, and user-scoped private search queries.
 - 📦 **Minimal Footprint**: Single binary, compiles to ~15MB Docker image, fits easily in Railway or Heroku hobby tier.
 
+## Live Deployment
+
+- **Base URL**: `https://nearhive-production.up.railway.app`
+- **Health Check**: `GET https://nearhive-production.up.railway.app/health`
+
 ## Getting Started
 
 ### Prerequisites

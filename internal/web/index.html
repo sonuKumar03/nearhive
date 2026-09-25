@@ -45,6 +45,9 @@
       background: #090d16 !important;
       font-family: 'Inter', sans-serif !important;
     }
+    .dark-tiles {
+      filter: invert(100%) hue-rotate(180deg) brightness(80%) contrast(95%);
+    }
     /* Pulse ring for epicenter */
     @keyframes pulse-ring {
       0% { transform: scale(0.9); opacity: 0.8; }
@@ -359,11 +362,11 @@
       // Zoom controls in bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // CartoDB Dark Matter tile layer
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+      // OpenStreetMap tiles with custom dark mode filter (clean, zero API keys required)
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
-        subdomains: 'abcd',
+        className: 'dark-tiles',
       }).addTo(map);
 
       companyMarkersLayer = L.layerGroup().addTo(map);

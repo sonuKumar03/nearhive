@@ -98,6 +98,9 @@
         <button onclick="setCity(12.9716, 77.5946, 'Bangalore')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Bangalore</button>
         <button onclick="setCity(17.3850, 78.4867, 'Hyderabad')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Hyderabad</button>
         <button onclick="setCity(18.5204, 73.8567, 'Pune')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Pune</button>
+        <button onclick="setCity(13.0827, 80.2707, 'Chennai')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Chennai</button>
+        <button onclick="setCity(28.4595, 77.0266, 'Gurgaon')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Gurgaon</button>
+        <button onclick="setCity(28.5355, 77.3910, 'Noida')" class="city-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50">Noida</button>
         <button onclick="locateUser()" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-colors border border-amber-500/20 flex items-center gap-1">
           <span>📍</span> Locate Me
         </button>
@@ -207,7 +210,7 @@
           <span class="text-2xl">🕷️</span>
           <div>
             <h3 class="font-bold text-slate-100 text-base">Run Scraper Pipeline</h3>
-            <p class="text-xs text-slate-400">Multi-source: OSM + Tech Parks + JustDial</p>
+            <p class="text-xs text-slate-400">Multi-source: OSM Overpass + Wikidata SPARQL + Tech Parks</p>
           </div>
         </div>
         <button onclick="closeScrapeModal()" class="text-slate-400 hover:text-slate-200">✕</button>
@@ -220,6 +223,9 @@
             <option value="Bangalore">Bangalore (Electronic City, Whitefield, Outer Ring Road)</option>
             <option value="Hyderabad">Hyderabad (HITEC City, Gachibowli, Financial Dist)</option>
             <option value="Pune">Pune (Hinjawadi, Magarpatta Cybercity)</option>
+            <option value="Chennai">Chennai (OMR Corridor, Tidel Park, DLF Cybercity)</option>
+            <option value="Gurgaon">Gurgaon (DLF Cyber City, Udyog Vihar)</option>
+            <option value="Noida">Noida (Sector 62, Expressway IT Hub)</option>
           </select>
         </div>
 
@@ -437,6 +443,15 @@
       currentLng = lng;
       map.flyTo([lat, lng], 12, { duration: 1.2 });
       setEpicenter(lat, lng);
+      const sel = document.getElementById('scrapeRegionSelect');
+      if (sel && name) {
+        for (let i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value.toLowerCase() === name.toLowerCase()) {
+            sel.selectedIndex = i;
+            break;
+          }
+        }
+      }
     }
 
     function locateUser() {
@@ -781,7 +796,7 @@
 
           if (res.ok) {
             document.getElementById('scrapeJobStatusBadge').textContent = job.status.toUpperCase();
-            if (job.status === 'completed') {
+            if (job.status === 'done' || job.status === 'completed') {
               clearInterval(interval);
               document.getElementById('scrapeJobMsg').textContent = `Success! Finished scraping with ${job.sightings || 0} sightings.`;
               document.getElementById('launchScrapeBtn').disabled = false;

@@ -3,7 +3,7 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'NearHive 🐝 — Scalable Tech Company Locator & Verification Engine',
+  title: 'NearHive — Scalable Tech Company Locator & Verification Engine',
   description: 'PostGIS spatial radius search, automated Overpass & Wikidata scraping, and AI verification engine.',
   icons: {
     icon: [

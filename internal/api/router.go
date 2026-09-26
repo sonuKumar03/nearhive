@@ -12,16 +12,21 @@ import (
 )
 
 func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
-	return NewRouterWithQueue(s, authMgr, orchestrator, nil, jwtSecret)
+	discoveryHandler := NewDiscoveryHandler(s, nil, "")
+	return NewRouterWithQueue(s, authMgr, orchestrator, nil, jwtSecret, discoveryHandler)
 }
 
-func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, q queue.JobQueue, jwtSecret string) *chi.Mux {
+func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, q queue.JobQueue, jwtSecret string, discoveryHandler *DiscoveryHandler) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	if discoveryHandler == nil {
+		discoveryHandler = NewDiscoveryHandler(s, nil, "")
+	}
 
 	authHandler := &AuthHandler{store: s, authMgr: authMgr}
 	searchHandler := &SearchHandler{store: s, history: s}
@@ -79,6 +84,12 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 		protected.Post("/api/v1/jobs/trigger", jobHandler.TriggerJob)
 		protected.Get("/api/v1/jobs/{id}", jobHandler.GetJob)
 		protected.Post("/api/v1/jobs/{id}/cancel", jobHandler.CancelJob)
+
+		// Authenticated discovery-job routes
+		protected.Post("/api/v1/discovery/jobs", discoveryHandler.CreateJob)
+		protected.Get("/api/v1/discovery/jobs", discoveryHandler.ListJobs)
+		protected.Get("/api/v1/discovery/jobs/{id}", discoveryHandler.GetJob)
+		protected.Post("/api/v1/discovery/jobs/{id}/cancel", discoveryHandler.CancelJob)
 	})
 
 	return r

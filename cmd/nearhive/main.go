@@ -108,8 +108,11 @@ func serveCmd() *cobra.Command {
 			// PostgreSQL Queue
 			jobQueue := queue.NewPostgresQueue(dbStore.SqlxDB(), cfg.DatabaseURL)
 
+			// Discovery Handler
+			discoveryHandler := api.NewDiscoveryHandler(dbStore, verifEngine, "")
+
 			// HTTP Server
-			router := api.NewRouterWithQueue(dbStore, authMgr, orchestrator, jobQueue, cfg.JWTSecret)
+			router := api.NewRouterWithQueue(dbStore, authMgr, orchestrator, jobQueue, cfg.JWTSecret, discoveryHandler)
 			srv := &http.Server{
 				Addr:         ":" + cfg.Port,
 				Handler:      router,

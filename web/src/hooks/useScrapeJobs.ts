@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@/lib/api-client';
 import { ScrapeJob } from '@/types';
@@ -28,7 +28,10 @@ export function useScrapeJob(jobId: string | null) {
 }
 
 export function useScrapeJobs() {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const prevSignatureRef = useRef<string | null>(null);
+
+  const query = useQuery({
     queryKey: ['jobs'],
     queryFn: () => fetchApi<{ jobs: ScrapeJob[] }>('/api/v1/jobs'),
     refetchInterval: (q) => {
@@ -37,6 +40,41 @@ export function useScrapeJobs() {
       return hasActive ? 2500 : 10000;
     },
   });
+
+  const jobs = query.data?.jobs;
+
+  // Whenever a job or task status updates or sightings change, automatically reload companies and profiles
+  useEffect(() => {
+    if (!jobs) return;
+
+    const parts: string[] = [];
+    for (const job of jobs) {
+      parts.push(`j:${job.id}:${job.status}:${job.sightings}`);
+      if (job.tasks) {
+        for (const t of job.tasks) {
+          parts.push(`t:${t.id}:${t.status}:${t.sightings}`);
+        }
+      }
+    }
+    const currentSignature = parts.join('|');
+
+    if (prevSignatureRef.current === null) {
+      prevSignatureRef.current = currentSignature;
+      return;
+    }
+
+    if (prevSignatureRef.current !== currentSignature) {
+      prevSignatureRef.current = currentSignature;
+
+      // Invalidate companies list, clusters, and any active company profile/sightings
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      queryClient.invalidateQueries({ queryKey: ['company'] });
+      queryClient.invalidateQueries({ queryKey: ['company-sightings'] });
+    }
+  }, [jobs, queryClient]);
+
+  return query;
 }
 
 export function useTriggerScraper() {
@@ -68,6 +106,8 @@ export function useCancelScraper() {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      queryClient.invalidateQueries({ queryKey: ['company'] });
+      queryClient.invalidateQueries({ queryKey: ['company-sightings'] });
     },
   });
 }

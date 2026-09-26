@@ -18,6 +18,7 @@ interface ScrapeModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultRegion?: string;
+  defaultMode?: 'coordinates' | 'preset';
   currentCenter?: { lat: number; lng: number };
   currentRadiusKm?: number;
   activeJobIds: string[];
@@ -37,22 +38,34 @@ export default function ScrapeModal({
   isOpen,
   onClose,
   defaultRegion = 'Bangalore',
+  defaultMode = 'preset',
   currentCenter,
   currentRadiusKm = 15,
   activeJobIds,
   onTriggerJob,
 }: ScrapeModalProps) {
-  const [mode, setMode] = useState<'coordinates' | 'preset'>('coordinates');
+  const [mode, setMode] = useState<'coordinates' | 'preset'>(defaultMode);
   const [region, setRegion] = useState(defaultRegion);
   const [radiusKm, setRadiusKm] = useState(currentRadiusKm);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
+  // Re-sync selection state whenever the modal is opened
   useEffect(() => {
-    if (currentRadiusKm) {
-      setRadiusKm(currentRadiusKm);
+    if (isOpen) {
+      if (defaultRegion) {
+        setRegion(defaultRegion);
+      }
+      if (currentRadiusKm) {
+        setRadiusKm(currentRadiusKm);
+      }
+      if (defaultMode) {
+        setMode(defaultMode);
+      }
+      setErrorText(null);
+      setSuccessNotice(null);
     }
-  }, [currentRadiusKm]);
+  }, [isOpen, defaultRegion, currentRadiusKm, defaultMode]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -73,6 +86,7 @@ export default function ScrapeModal({
   const allJobs = jobsData?.jobs || [];
   // Show active jobs or recently completed jobs
   const relevantJobs = allJobs.slice(0, 4);
+  const hasActiveJobs = triggerMutation.isPending || allJobs.some((j) => j.status === 'running' || j.status === 'pending');
 
   async function handleStart() {
     setErrorText(null);
@@ -345,16 +359,31 @@ export default function ScrapeModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-800 shrink-0">
           <span className="text-[11px] text-slate-400">
-            Jobs execute in parallel in the background.
+            {hasActiveJobs
+              ? 'Jobs execute in parallel in the background.'
+              : relevantJobs.length > 0
+              ? 'All background pipelines completed.'
+              : 'Ready to dispatch background pipelines.'}
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <span>Run in Background</span>
-            <ArrowDownRight className="w-3.5 h-3.5" />
-          </button>
+          {hasActiveJobs ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Run in Background</span>
+              <ArrowDownRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Close</span>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

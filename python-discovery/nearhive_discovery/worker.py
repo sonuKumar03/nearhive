@@ -2,6 +2,7 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -31,7 +32,9 @@ class Source(Protocol):
     name: str
     source_family: str
 
-    def run(self, job: DiscoveryJob) -> list[EvidenceBatch] | EvidenceBatch:
+    def run(
+        self, job: DiscoveryJob
+    ) -> list[EvidenceBatch] | EvidenceBatch | Iterable[EvidenceBatch]:
         ...
 
 
@@ -47,12 +50,12 @@ class Worker:
         poll_interval_seconds: float = settings.poll_interval_seconds,
     ) -> None:
         self.db_url = db_url
-        self.client = client or IngestionClient(
+        self.client = client if client is not None else IngestionClient(
             base_url=settings.api_base_url,
             worker_token=settings.worker_token,
         )
-        self.sources: list[Source] = sources or []
-        self.worker_id = worker_id or settings.worker_id
+        self.sources: list[Source] = sources if sources is not None else []
+        self.worker_id = worker_id if worker_id is not None else settings.worker_id
         self.lease_seconds = lease_seconds
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.poll_interval_seconds = poll_interval_seconds
@@ -74,6 +77,7 @@ class Worker:
 
     def _process_job(self, conn: Any, job: DiscoveryJob) -> None:
         stop_heartbeat = threading.Event()
+        lease_lost = threading.Event()
 
         def heartbeat_target() -> None:
             while not stop_heartbeat.wait(self.heartbeat_interval_seconds):
@@ -87,10 +91,12 @@ class Worker:
                         )
                         if not extended:
                             logger.warning(
-                                "Failed to extend lease for job %s (worker %s)",
+                                "Failed to extend lease for job %s (worker %s); lease lost",
                                 job.id,
                                 self.worker_id,
                             )
+                            lease_lost.set()
+                            break
                 except Exception as exc:
                     logger.warning("Heartbeat error on job %s: %s", job.id, exc)
 
@@ -106,6 +112,15 @@ class Worker:
 
         try:
             for source in self.sources:
+                if lease_lost.is_set():
+                    logger.warning(
+                        "Lease lost for job %s; aborting before source %s",
+                        job.id,
+                        source.name,
+                    )
+                    execution_error = "Lease lost during execution"
+                    break
+
                 if is_cancelled(conn, job.id):
                     logger.info("Job %s cancelled; halting before source %s", job.id, source.name)
                     was_cancelled = True
@@ -121,15 +136,21 @@ class Worker:
 
                 try:
                     raw_batches = source.run(job)
-                    batches: list[EvidenceBatch]
+                    batch_iter: Iterable[EvidenceBatch]
                     if isinstance(raw_batches, EvidenceBatch):
-                        batches = [raw_batches]
-                    elif isinstance(raw_batches, list):
-                        batches = raw_batches
+                        batch_iter = [raw_batches]
+                    elif isinstance(raw_batches, Iterable) and not isinstance(
+                        raw_batches, (str, bytes, dict)
+                    ):
+                        batch_iter = raw_batches
                     else:
-                        batches = []
+                        batch_iter = []
 
-                    for batch in batches:
+                    for batch in batch_iter:
+                        if lease_lost.is_set():
+                            raise RuntimeError("Lease lost during batch submission")
+                        if not isinstance(batch, EvidenceBatch):
+                            continue
                         result = self.client.submit(batch)
                         source_comp_count += result.accepted_companies
                         source_job_count += result.accepted_jobs
@@ -164,6 +185,15 @@ class Worker:
                     total_evidence += source_ev_count
                     source_statuses.append(s_status)
 
+                if lease_lost.is_set():
+                    logger.warning(
+                        "Lease lost for job %s; aborting after source %s",
+                        job.id,
+                        source.name,
+                    )
+                    execution_error = "Lease lost during execution"
+                    break
+
                 if is_cancelled(conn, job.id):
                     logger.info("Job %s cancelled after source %s", job.id, source.name)
                     was_cancelled = True
@@ -179,6 +209,8 @@ class Worker:
             # Determine final status
             if was_cancelled or is_cancelled(conn, job.id):
                 final_status = DiscoveryStatus.CANCELLED
+            elif execution_error is not None:
+                final_status = DiscoveryStatus.FAILED
             elif not source_statuses:
                 final_status = DiscoveryStatus.COMPLETED
             elif all(s == DiscoveryStatus.COMPLETED for s in source_statuses):
@@ -188,16 +220,17 @@ class Worker:
             else:
                 final_status = DiscoveryStatus.FAILED
 
-            finish_job(
+            updated = finish_job(
                 conn,
                 job_id=job.id,
                 status=final_status,
+                worker_id=self.worker_id,
                 error=execution_error,
                 company_count=total_companies,
                 job_count=total_jobs,
                 evidence_count=total_evidence,
             )
-            logger.info("Job %s finalized with status %s", job.id, final_status)
+            logger.info("Job %s finalized with status %s (updated=%s)", job.id, final_status, updated)
 
     def run(
         self,

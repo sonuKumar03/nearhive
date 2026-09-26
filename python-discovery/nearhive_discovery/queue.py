@@ -118,6 +118,7 @@ def finish_job(
     conn: Any,
     job_id: str | UUID,
     status: DiscoveryStatus,
+    worker_id: str | None = None,
     error: str | None = None,
     company_count: int | None = None,
     job_count: int | None = None,
@@ -132,11 +133,16 @@ def finish_job(
         END,
         finished_at = NOW(),
         updated_at = NOW(),
-        error = COALESCE(%(error)s, error),
+        error = CASE
+            WHEN %(status)s = 'completed' THEN NULL
+            ELSE COALESCE(%(error)s, error)
+        END,
         company_count = COALESCE(%(company_count)s, company_count),
         job_count = COALESCE(%(job_count)s, job_count),
         evidence_count = COALESCE(%(evidence_count)s, evidence_count)
-    WHERE id = %(job_id)s;
+    WHERE id = %(job_id)s
+      AND status = 'running'
+      AND (%(worker_id)s::varchar IS NULL OR worker_id = %(worker_id)s);
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -144,6 +150,7 @@ def finish_job(
             {
                 "job_id": str(job_id),
                 "status": status_str,
+                "worker_id": worker_id,
                 "error": error,
                 "company_count": company_count,
                 "job_count": job_count,

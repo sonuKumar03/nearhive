@@ -243,3 +243,81 @@ def test_max_attempts_exceeded_not_claimed(db_connections, test_user_id):
     # attempts >= max_attempts: must not be claimed
     claimed = claim_job(conn1, worker_id="worker-1", lease_seconds=60)
     assert claimed is None
+
+
+def test_finish_job_stale_worker_rejected(db_connections, test_user_id):
+    conn1, conn2 = db_connections
+    job_id = uuid.uuid4()
+
+    # Job is currently running by worker-2
+    with conn1.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, worker_id, attempts, max_attempts)
+            VALUES (%s, %s, 'running', 37.7749, -122.4194, 10.0, 'worker-2', 2, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    # Stale worker-1 attempts to finish the job: must return False and NOT overwrite
+    ok = finish_job(
+        conn1,
+        job_id=job_id,
+        status=DiscoveryStatus.FAILED,
+        worker_id="worker-1",
+        error="stale worker failure",
+    )
+    assert ok is False
+
+    # Check job is still running by worker-2
+    with conn2.cursor() as cur:
+        cur.execute("SELECT status, worker_id, error FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "running"
+        assert row[1] == "worker-2"
+        assert row[2] is None
+
+    # Correct worker-2 finishing the job succeeds
+    ok2 = finish_job(
+        conn2,
+        job_id=job_id,
+        status=DiscoveryStatus.COMPLETED,
+        worker_id="worker-2",
+        company_count=3,
+    )
+    assert ok2 is True
+
+
+def test_finish_job_clears_error_on_completed(db_connections, test_user_id):
+    conn1, _ = db_connections
+    job_id = uuid.uuid4()
+
+    # Job has previous error from attempt 1
+    with conn1.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (
+                id, user_id, status, lat, lng, radius_km, worker_id, error, attempts, max_attempts
+            ) VALUES (
+                %s, %s, 'running', 37.7749, -122.4194, 10.0, 'worker-1', 'previous network error', 2, 3
+            )
+            """,
+            (job_id, test_user_id),
+        )
+
+    # Attempt 2 completes successfully with no error
+    ok = finish_job(
+        conn1,
+        job_id=job_id,
+        status=DiscoveryStatus.COMPLETED,
+        worker_id="worker-1",
+        error=None,
+    )
+    assert ok is True
+
+    # Error must be cleared to NULL
+    with conn1.cursor() as cur:
+        cur.execute("SELECT status, error FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "completed"
+        assert row[1] is None

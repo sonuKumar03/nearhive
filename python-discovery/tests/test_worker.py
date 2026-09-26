@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 import pytest
@@ -470,3 +471,146 @@ def test_worker_run_loop_with_max_jobs(db_conn, test_user_id):
         cur.execute("SELECT status FROM discovery_jobs WHERE id = %s", (job_id,))
         row = cur.fetchone()
         assert row[0] == "completed"
+
+
+def test_worker_fatal_exception_marks_job_failed(db_conn, test_user_id, monkeypatch):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client())
+
+    # Simulate fatal crash when accessing sources or inside process loop before source_statuses populated
+    class CrashingSourcesList(list):
+        def __iter__(self):
+            raise RuntimeError("Fatal database corruption or memory crash before sources run")
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=CrashingSourcesList(),
+        worker_id="test-worker-crash",
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+
+    # Must be marked failed, NOT completed!
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, error FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "failed"
+        assert "Fatal database corruption" in row[1]
+
+
+def test_worker_generator_source_yields_batches(db_conn, test_user_id):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    batch1 = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="gen_source",
+        source_family="search_engine",
+        observed_at=datetime.now(timezone.utc),
+        companies=[CompanyEvidence(name="Company 1")],
+        jobs=[],
+    )
+    batch2 = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="gen_source",
+        source_family="search_engine",
+        observed_at=datetime.now(timezone.utc),
+        companies=[CompanyEvidence(name="Company 2")],
+        jobs=[],
+    )
+
+    class GeneratorSource(Source):
+        name = "gen_source"
+        source_family = "search_engine"
+
+        def run(self, job: DiscoveryJob):
+            yield batch1
+            yield batch2
+
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "companies": [{"index": 0, "status": "accepted", "id": "uuid-1"}],
+                "jobs": [],
+            },
+        )
+    )
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client(transport=transport))
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[GeneratorSource()],
+        worker_id="test-worker-gen",
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+
+    # Both yielded batches were processed: total 2 companies accepted
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, company_count FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "completed"
+        assert row[1] == 2
+
+
+def test_worker_lease_lost_aborts_execution(db_conn, test_user_id):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    class StealingSource(MockSource):
+        def run(self, job: DiscoveryJob) -> list[EvidenceBatch]:
+            # Simulate another worker taking the lease or job being reassigned
+            with psycopg.connect(DATABASE_URL, autocommit=True) as steal_conn:
+                with steal_conn.cursor() as c:
+                    c.execute("UPDATE discovery_jobs SET worker_id = 'new-worker' WHERE id = %s", (job.id,))
+            # Give background heartbeat thread a moment to notice lease is lost
+            time.sleep(0.25)
+            return []
+
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client())
+    source1 = StealingSource(name="source1", source_family="test")
+    source2 = MockSource(name="source2", source_family="test")
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[source1, source2],
+        worker_id="test-worker-lost",
+        heartbeat_interval_seconds=0.05,
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+
+    # Source 2 should NOT have been executed because lease was lost!
+    assert source2.called_with_job is None

@@ -5,6 +5,13 @@ import Providers from './providers';
 export const metadata: Metadata = {
   title: 'NearHive 🐝 — Scalable Tech Company Locator & Verification Engine',
   description: 'PostGIS spatial radius search, automated Overpass & Wikidata scraping, and AI verification engine.',
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

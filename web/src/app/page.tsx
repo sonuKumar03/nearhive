@@ -216,7 +216,9 @@ export default function HomePage() {
         </div>
 
         {/* Company Detail Drawer */}
-        <CompanyDetailDrawer company={selectedCompany} onClose={() => setSelectedCompany(null)} />
+        {selectedCompany && (
+          <CompanyDetailDrawer company={selectedCompany} onClose={() => setSelectedCompany(null)} />
+        )}
 
         {/* Scrape Modal */}
         <ScrapeModal

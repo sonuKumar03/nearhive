@@ -18,10 +18,10 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  if (!company) return null;
+  const { data: details, isLoading: loadingCompany } = useCompany(company?.id ?? null);
+  const { data: sightingsData, isLoading: loadingSightings } = useSightings(company?.id ?? null);
 
-  const { data: details, isLoading: loadingCompany } = useCompany(company.id);
-  const { data: sightingsData, isLoading: loadingSightings } = useSightings(company.id);
+  if (!company) return null;
 
   const conf = Math.round(company.confidence * 100);
 

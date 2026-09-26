@@ -48,6 +48,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
+      JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
       ENVIRONMENT: development
       LOG_LEVEL: info
     restart: unless-stopped

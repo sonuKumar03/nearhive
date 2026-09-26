@@ -62,7 +62,6 @@ func (s *PostgresStore) SqlxDB() *sqlx.DB {
 	return s.db
 }
 
-
 // UserStore implementation
 func (s *PostgresStore) CreateUser(ctx context.Context, u *model.User) error {
 	query := `INSERT INTO users (id, email, password, created_at, updated_at) 
@@ -175,9 +174,12 @@ func (s *PostgresStore) CreateLocation(ctx context.Context, l *model.Location) e
 	now := time.Now()
 	l.CreatedAt = now
 	l.UpdatedAt = now
-	query := `INSERT INTO locations (id, company_id, label, address, city, state, country, pincode, coords, confidence, verified, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, $13, $14)`
-	_, err := s.db.ExecContext(ctx, query, l.ID, l.CompanyID, l.Label, l.Address, l.City, l.State, l.Country, l.Pincode, l.Lng, l.Lat, l.Confidence, l.Verified, l.CreatedAt, l.UpdatedAt)
+	if l.PresenceType == "" {
+		l.PresenceType = model.PresenceTypeProbableOffice
+	}
+	query := `INSERT INTO locations (id, company_id, label, address, city, state, country, pincode, coords, confidence, presence_type, verified, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, $13, $14, $15)`
+	_, err := s.db.ExecContext(ctx, query, l.ID, l.CompanyID, l.Label, l.Address, l.City, l.State, l.Country, l.Pincode, l.Lng, l.Lat, l.Confidence, string(l.PresenceType), l.Verified, l.CreatedAt, l.UpdatedAt)
 	return err
 }
 
@@ -185,7 +187,7 @@ func (s *PostgresStore) GetLocationsByCompany(ctx context.Context, companyID uui
 	var locs []model.Location
 	query := `SELECT id, company_id, label, address, city, state, country, pincode,
 	                 ST_Y(coords::geometry) as lat, ST_X(coords::geometry) as lng,
-	                 confidence, verified, created_at, updated_at
+	                 confidence, presence_type, verified, created_at, updated_at
 	          FROM locations WHERE company_id = $1`
 	err := s.db.SelectContext(ctx, &locs, query, companyID)
 	return locs, err
@@ -195,7 +197,7 @@ func (s *PostgresStore) FindNearbyLocation(ctx context.Context, companyID uuid.U
 	var l model.Location
 	query := `SELECT id, company_id, label, address, city, state, country, pincode,
 	                 ST_Y(coords::geometry) as lat, ST_X(coords::geometry) as lng,
-	                 confidence, verified, created_at, updated_at
+	                 confidence, presence_type, verified, created_at, updated_at
 	          FROM locations 
 	          WHERE company_id = $1 
 	            AND ST_DWithin(coords, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
@@ -232,6 +234,8 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	       ST_Y(l.coords::geometry) AS lat, ST_X(l.coords::geometry) AS lng,
 	       l.confidence,
 	       ST_Distance(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_m,
+	       COALESCE(l.presence_type, 'probable_office') AS presence_type,
+	       0 AS recent_technical_job_count,
 	       l.verified
 	FROM locations l
 	JOIN companies c ON c.id = l.company_id

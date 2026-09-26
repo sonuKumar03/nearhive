@@ -3,34 +3,42 @@ package store
 import (
 	"context"
 	"math"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
 type MockStore struct {
-	mu            sync.RWMutex
-	Users         map[uuid.UUID]*model.User
-	UsersByEmail  map[string]*model.User
-	Companies     map[uuid.UUID]*model.Company
-	Locations     map[uuid.UUID]*model.Location
-	Sightings     map[uuid.UUID]*model.Sighting
-	Jobs          map[uuid.UUID]*model.ScrapeJob
-	Tasks         map[uuid.UUID]*model.ScrapeTask
-	SearchHistory []model.SearchHistory
+	mu                  sync.RWMutex
+	Users               map[uuid.UUID]*model.User
+	UsersByEmail        map[string]*model.User
+	Companies           map[uuid.UUID]*model.Company
+	Locations           map[uuid.UUID]*model.Location
+	Sightings           map[uuid.UUID]*model.Sighting
+	Jobs                map[uuid.UUID]*model.ScrapeJob
+	Tasks               map[uuid.UUID]*model.ScrapeTask
+	SearchHistory       []model.SearchHistory
+	DiscoveryJobs       map[uuid.UUID]*model.DiscoveryJob
+	DiscoverySourceRuns map[uuid.UUID][]*model.DiscoverySourceRun
+	TechnicalJobs       map[uuid.UUID]*model.TechnicalJobPosting
 }
 
 func NewMockStore() *MockStore {
 	return &MockStore{
-		Users:        make(map[uuid.UUID]*model.User),
-		UsersByEmail: make(map[string]*model.User),
-		Companies:    make(map[uuid.UUID]*model.Company),
-		Locations:    make(map[uuid.UUID]*model.Location),
-		Sightings:    make(map[uuid.UUID]*model.Sighting),
-		Jobs:         make(map[uuid.UUID]*model.ScrapeJob),
-		Tasks:        make(map[uuid.UUID]*model.ScrapeTask),
+		Users:               make(map[uuid.UUID]*model.User),
+		UsersByEmail:        make(map[string]*model.User),
+		Companies:           make(map[uuid.UUID]*model.Company),
+		Locations:           make(map[uuid.UUID]*model.Location),
+		Sightings:           make(map[uuid.UUID]*model.Sighting),
+		Jobs:                make(map[uuid.UUID]*model.ScrapeJob),
+		Tasks:               make(map[uuid.UUID]*model.ScrapeTask),
+		DiscoveryJobs:       make(map[uuid.UUID]*model.DiscoveryJob),
+		DiscoverySourceRuns: make(map[uuid.UUID][]*model.DiscoverySourceRun),
+		TechnicalJobs:       make(map[uuid.UUID]*model.TechnicalJobPosting),
 	}
 }
 
@@ -133,6 +141,9 @@ func (m *MockStore) CreateLocation(_ context.Context, l *model.Location) error {
 	if l.ID == uuid.Nil {
 		l.ID = uuid.New()
 	}
+	if l.PresenceType == "" {
+		l.PresenceType = model.PresenceTypeProbableOffice
+	}
 	m.Locations[l.ID] = l
 	return nil
 }
@@ -197,21 +208,27 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 			if opts.MinConfidence != nil && l.Confidence < *opts.MinConfidence {
 				continue
 			}
+			pType := l.PresenceType
+			if pType == "" {
+				pType = model.PresenceTypeProbableOffice
+			}
 			results = append(results, model.CompanySearchResult{
-				CompanyID:      c.ID,
-				Name:           c.Name,
-				Domain:         c.Domain,
-				Industry:       c.Industry,
-				EmployeeCount:  c.EmployeeCount,
-				LocationID:     l.ID,
-				Label:          l.Label,
-				Address:        l.Address,
-				City:           l.City,
-				Lat:            l.Lat,
-				Lng:            l.Lng,
-				Confidence:     l.Confidence,
-				DistanceMeters: dist,
-				Verified:       l.Verified,
+				CompanyID:               c.ID,
+				Name:                    c.Name,
+				Domain:                  c.Domain,
+				Industry:                c.Industry,
+				EmployeeCount:           c.EmployeeCount,
+				LocationID:              l.ID,
+				Label:                   l.Label,
+				Address:                 l.Address,
+				City:                    l.City,
+				Lat:                     l.Lat,
+				Lng:                     l.Lng,
+				Confidence:              l.Confidence,
+				DistanceMeters:          dist,
+				PresenceType:            pType,
+				RecentTechnicalJobCount: 0,
+				Verified:                l.Verified,
 			})
 		}
 	}
@@ -414,4 +431,263 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 			math.Sin(dLon/2)*math.Sin(dLon/2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return R * c
+}
+
+// DiscoveryStore implementation
+
+func (m *MockStore) CreateDiscoveryJob(_ context.Context, job *model.DiscoveryJob) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if job.ID == uuid.Nil {
+		job.ID = uuid.New()
+	}
+	if job.Status == "" {
+		job.Status = model.DiscoveryStatusPending
+	}
+	if job.MaxAttempts <= 0 {
+		job.MaxAttempts = 3
+	}
+	now := time.Now()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+
+	jobCopy := *job
+	m.DiscoveryJobs[job.ID] = &jobCopy
+	return nil
+}
+
+func (m *MockStore) GetDiscoveryJob(_ context.Context, id uuid.UUID, userID uuid.UUID) (*model.DiscoveryJob, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	j, ok := m.DiscoveryJobs[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if userID != uuid.Nil && j.UserID != userID {
+		return nil, ErrNotFound
+	}
+
+	jobCopy := *j
+	jobCopy.SourceRuns = []model.DiscoverySourceRun{}
+	if runs, found := m.DiscoverySourceRuns[id]; found {
+		for _, r := range runs {
+			jobCopy.SourceRuns = append(jobCopy.SourceRuns, *r)
+		}
+	}
+	return &jobCopy, nil
+}
+
+func (m *MockStore) ListDiscoveryJobs(_ context.Context, userID uuid.UUID, limit, offset int) ([]model.DiscoveryJob, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var all []model.DiscoveryJob
+	for _, j := range m.DiscoveryJobs {
+		if userID == uuid.Nil || j.UserID == userID {
+			jobCopy := *j
+			jobCopy.SourceRuns = []model.DiscoverySourceRun{}
+			if runs, found := m.DiscoverySourceRuns[j.ID]; found {
+				for _, r := range runs {
+					jobCopy.SourceRuns = append(jobCopy.SourceRuns, *r)
+				}
+			}
+			all = append(all, jobCopy)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+
+	if offset >= len(all) {
+		return []model.DiscoveryJob{}, nil
+	}
+
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+
+	return all[offset:end], nil
+}
+
+func (m *MockStore) CancelDiscoveryJob(_ context.Context, id uuid.UUID, userID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	j, ok := m.DiscoveryJobs[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if userID != uuid.Nil && j.UserID != userID {
+		return ErrNotFound
+	}
+
+	if j.Status == model.DiscoveryStatusCancelled {
+		return nil
+	}
+	if j.Status != model.DiscoveryStatusPending && j.Status != model.DiscoveryStatusRunning {
+		return ErrInvalidJobState
+	}
+
+	j.Status = model.DiscoveryStatusCancelled
+	j.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *MockStore) UpsertDiscoverySourceRun(_ context.Context, run *model.DiscoverySourceRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if run.ID == uuid.Nil {
+		run.ID = uuid.New()
+	}
+	now := time.Now()
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = now
+	}
+	run.UpdatedAt = now
+
+	runs := m.DiscoverySourceRuns[run.DiscoveryJobID]
+	for i, existing := range runs {
+		if existing.Source == run.Source {
+			runCopy := *run
+			runCopy.ID = existing.ID
+			runCopy.CreatedAt = existing.CreatedAt
+			runs[i] = &runCopy
+			m.DiscoverySourceRuns[run.DiscoveryJobID] = runs
+			return nil
+		}
+	}
+
+	runCopy := *run
+	m.DiscoverySourceRuns[run.DiscoveryJobID] = append(m.DiscoverySourceRuns[run.DiscoveryJobID], &runCopy)
+	return nil
+}
+
+func (m *MockStore) GetDiscoverySourceRuns(_ context.Context, discoveryJobID uuid.UUID) ([]model.DiscoverySourceRun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	runs, ok := m.DiscoverySourceRuns[discoveryJobID]
+	if !ok {
+		return []model.DiscoverySourceRun{}, nil
+	}
+
+	res := make([]model.DiscoverySourceRun, len(runs))
+	for i, r := range runs {
+		res[i] = *r
+	}
+	return res, nil
+}
+
+// TechnicalJobStore implementation
+
+func (m *MockStore) GetTechnicalJobsByCompany(_ context.Context, companyID uuid.UUID, since time.Time) ([]model.TechnicalJobPosting, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var res []model.TechnicalJobPosting
+	for _, job := range m.TechnicalJobs {
+		if job.CompanyID != companyID || !job.IsActive {
+			continue
+		}
+		if !since.IsZero() {
+			if job.PostedAt != nil {
+				if job.PostedAt.Before(since) {
+					continue
+				}
+			} else {
+				if job.LastSeenAt.Before(since) {
+					continue
+				}
+			}
+		}
+		res = append(res, *job)
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		tI := res[i].LastSeenAt
+		if res[i].PostedAt != nil {
+			tI = *res[i].PostedAt
+		}
+		tJ := res[j].LastSeenAt
+		if res[j].PostedAt != nil {
+			tJ = *res[j].PostedAt
+		}
+		return tI.After(tJ)
+	})
+
+	return res, nil
+}
+
+func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJobPosting) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if job.ID == uuid.Nil {
+		job.ID = uuid.New()
+	}
+	if job.NormalizedTitle == "" {
+		job.NormalizedTitle = strings.ToLower(strings.TrimSpace(job.Title))
+	}
+	now := time.Now()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+	if job.FirstSeenAt.IsZero() {
+		job.FirstSeenAt = now
+	}
+	if job.LastSeenAt.IsZero() {
+		job.LastSeenAt = now
+	}
+
+	// Match existing by (source, source_job_id) if source_job_id is set, or (source, content_hash)
+	for _, existing := range m.TechnicalJobs {
+		matched := false
+		if job.SourceJobID != nil && *job.SourceJobID != "" && existing.SourceJobID != nil && *existing.SourceJobID == *job.SourceJobID && existing.Source == job.Source {
+			matched = true
+		} else if (job.SourceJobID == nil || *job.SourceJobID == "") && existing.ContentHash == job.ContentHash && existing.Source == job.Source {
+			matched = true
+		}
+
+		if matched {
+			existing.Title = job.Title
+			existing.NormalizedTitle = job.NormalizedTitle
+			existing.DescriptionExcerpt = job.DescriptionExcerpt
+			existing.LocationRaw = job.LocationRaw
+			existing.Lat = job.Lat
+			existing.Lng = job.Lng
+			existing.WorkArrangement = job.WorkArrangement
+			existing.PublicationState = job.PublicationState
+			if job.PostedAt != nil {
+				existing.PostedAt = job.PostedAt
+				existing.PostedAtConfidence = job.PostedAtConfidence
+			}
+			existing.LastSeenAt = job.LastSeenAt
+			existing.IsActive = job.IsActive
+			existing.TechnicalClassification = job.TechnicalClassification
+			existing.RuleVersion = job.RuleVersion
+			existing.ClassificationReasons = job.ClassificationReasons
+			existing.Metadata = job.Metadata
+			existing.UpdatedAt = now
+			return nil
+		}
+	}
+
+	jobCopy := *job
+	m.TechnicalJobs[job.ID] = &jobCopy
+	return nil
 }

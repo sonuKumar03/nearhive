@@ -55,20 +55,21 @@ type Company struct {
 }
 
 type Location struct {
-	ID         uuid.UUID `db:"id" json:"id"`
-	CompanyID  uuid.UUID `db:"company_id" json:"company_id"`
-	Label      *string   `db:"label" json:"label,omitempty"`
-	Address    string    `db:"address" json:"address"`
-	City       *string   `db:"city" json:"city,omitempty"`
-	State      *string   `db:"state" json:"state,omitempty"`
-	Country    string    `db:"country" json:"country"`
-	Pincode    *string   `db:"pincode" json:"pincode,omitempty"`
-	Lat        float64   `db:"lat" json:"lat"`
-	Lng        float64   `db:"lng" json:"lng"`
-	Confidence float64   `db:"confidence" json:"confidence"`
-	Verified   bool      `db:"verified" json:"verified"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+	ID           uuid.UUID    `db:"id" json:"id"`
+	CompanyID    uuid.UUID    `db:"company_id" json:"company_id"`
+	Label        *string      `db:"label" json:"label,omitempty"`
+	Address      string       `db:"address" json:"address"`
+	City         *string      `db:"city" json:"city,omitempty"`
+	State        *string      `db:"state" json:"state,omitempty"`
+	Country      string       `db:"country" json:"country"`
+	Pincode      *string      `db:"pincode" json:"pincode,omitempty"`
+	Lat          float64      `db:"lat" json:"lat"`
+	Lng          float64      `db:"lng" json:"lng"`
+	Confidence   float64      `db:"confidence" json:"confidence"`
+	PresenceType PresenceType `db:"presence_type" json:"presence_type"`
+	Verified     bool         `db:"verified" json:"verified"`
+	CreatedAt    time.Time    `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time    `db:"updated_at" json:"updated_at"`
 }
 
 type Sighting struct {
@@ -128,20 +129,23 @@ type SearchHistory struct {
 }
 
 type CompanySearchResult struct {
-	CompanyID      uuid.UUID `db:"company_id" json:"id"`
-	Name           string    `db:"name" json:"name"`
-	Domain         *string   `db:"domain" json:"domain,omitempty"`
-	Industry       *string   `db:"industry" json:"industry,omitempty"`
-	EmployeeCount  *string   `db:"employee_count" json:"employee_count,omitempty"`
-	LocationID     uuid.UUID `db:"location_id" json:"location_id"`
-	Label          *string   `db:"label" json:"label,omitempty"`
-	Address        string    `db:"address" json:"address"`
-	City           *string   `db:"city" json:"city,omitempty"`
-	Lat            float64   `db:"lat" json:"lat"`
-	Lng            float64   `db:"lng" json:"lng"`
-	Confidence     float64   `db:"confidence" json:"confidence"`
-	DistanceMeters float64   `db:"distance_m" json:"distance_meters"`
-	Verified       bool      `db:"verified" json:"verified"`
+	CompanyID               uuid.UUID         `db:"company_id" json:"id"`
+	Name                    string            `db:"name" json:"name"`
+	Domain                  *string           `db:"domain" json:"domain,omitempty"`
+	Industry                *string           `db:"industry" json:"industry,omitempty"`
+	EmployeeCount           *string           `db:"employee_count" json:"employee_count,omitempty"`
+	LocationID              uuid.UUID         `db:"location_id" json:"location_id"`
+	Label                   *string           `db:"label" json:"label,omitempty"`
+	Address                 string            `db:"address" json:"address"`
+	City                    *string           `db:"city" json:"city,omitempty"`
+	Lat                     float64           `db:"lat" json:"lat"`
+	Lng                     float64           `db:"lng" json:"lng"`
+	Confidence              float64           `db:"confidence" json:"confidence"`
+	DistanceMeters          float64           `db:"distance_m" json:"distance_meters"`
+	PresenceType            PresenceType      `db:"presence_type" json:"presence_type"`
+	RecentTechnicalJobCount int               `db:"recent_technical_job_count" json:"recent_technical_job_count"`
+	Arrangements            []WorkArrangement `db:"arrangements" json:"arrangements,omitempty"`
+	Verified                bool              `db:"verified" json:"verified"`
 }
 
 type SpatialCluster struct {

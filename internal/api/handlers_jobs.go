@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
+	"github.com/sonukumar/nearhive/internal/queue"
 	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/store"
 )
@@ -19,6 +20,7 @@ type JobHandler struct {
 	store        store.JobStore
 	orchestrator *scraper.Orchestrator
 	taskMgr      *scraper.TaskManager
+	queue        queue.JobQueue
 }
 
 func NewJobHandler(s store.JobStore, o *scraper.Orchestrator, tm *scraper.TaskManager) *JobHandler {
@@ -33,6 +35,11 @@ func NewJobHandler(s store.JobStore, o *scraper.Orchestrator, tm *scraper.TaskMa
 		orchestrator: o,
 		taskMgr:      tm,
 	}
+}
+
+func (h *JobHandler) WithQueue(q queue.JobQueue) *JobHandler {
+	h.queue = q
+	return h
 }
 
 type TriggerJobRequest struct {
@@ -69,15 +76,29 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		req.RadiusKM = 15
 	}
 
+	status := "running"
+	if h.queue != nil {
+		status = "pending"
+	}
+
 	job := &model.ScrapeJob{
 		ID:        uuid.New(),
 		Source:    "manual_trigger",
-		Status:    "running",
+		Status:    status,
 		Region:    &req.Region,
+		Lat:       &req.Lat,
+		Lng:       &req.Lng,
+		RadiusKM:  &req.RadiusKM,
 		StartedAt: func() *time.Time { t := time.Now(); return &t }(),
 	}
 	if err := h.store.CreateJob(r.Context(), job); err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to create scrape job", "INTERNAL_ERROR", nil)
+		return
+	}
+
+	// If queue is configured, the standalone crawler worker will dequeue and process it
+	if h.queue != nil {
+		JSON(w, http.StatusAccepted, job)
 		return
 	}
 
@@ -153,7 +174,7 @@ func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Terminate active background context
+	// Terminate active background context in-process
 	if h.taskMgr != nil {
 		h.taskMgr.Cancel(id)
 	}
@@ -165,6 +186,11 @@ func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	errMsg := "job cancelled by user"
 	job.Error = &errMsg
 	_ = h.store.UpdateJob(r.Context(), job)
+
+	// Send real-time cross-process cancellation notification via PostgreSQL LISTEN/NOTIFY
+	if h.queue != nil {
+		_ = h.queue.NotifyCancel(r.Context(), id)
+	}
 
 	JSON(w, http.StatusOK, map[string]any{
 		"message": "job cancelled successfully",

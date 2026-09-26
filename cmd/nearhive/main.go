@@ -18,6 +18,7 @@ import (
 	"github.com/sonukumar/nearhive/internal/config"
 	"github.com/sonukumar/nearhive/internal/geocoder"
 	"github.com/sonukumar/nearhive/internal/model"
+	"github.com/sonukumar/nearhive/internal/queue"
 	"github.com/sonukumar/nearhive/internal/scheduler"
 	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/scraper/sources"
@@ -104,8 +105,11 @@ func serveCmd() *cobra.Command {
 			defer schedCancel()
 			sched.Start(schedCtx)
 
+			// PostgreSQL Queue
+			jobQueue := queue.NewPostgresQueue(dbStore.SqlxDB(), cfg.DatabaseURL)
+
 			// HTTP Server
-			router := api.NewRouter(dbStore, authMgr, orchestrator, cfg.JWTSecret)
+			router := api.NewRouterWithQueue(dbStore, authMgr, orchestrator, jobQueue, cfg.JWTSecret)
 			srv := &http.Server{
 				Addr:         ":" + cfg.Port,
 				Handler:      router,

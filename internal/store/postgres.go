@@ -58,6 +58,10 @@ func (s *PostgresStore) DB() *sql.DB {
 	return s.db.DB
 }
 
+func (s *PostgresStore) SqlxDB() *sqlx.DB {
+	return s.db
+}
+
 
 // UserStore implementation
 func (s *PostgresStore) CreateUser(ctx context.Context, u *model.User) error {
@@ -360,21 +364,21 @@ func (s *PostgresStore) CreateJob(ctx context.Context, job *model.ScrapeJob) err
 	if job.CreatedAt.IsZero() {
 		job.CreatedAt = time.Now()
 	}
-	query := `INSERT INTO scrape_jobs (id, source, status, region, sightings, error, started_at, finished_at, created_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-	_, err := s.db.ExecContext(ctx, query, job.ID, job.Source, job.Status, job.Region, job.Sightings, job.Error, job.StartedAt, job.FinishedAt, job.CreatedAt)
+	query := `INSERT INTO scrape_jobs (id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+	_, err := s.db.ExecContext(ctx, query, job.ID, job.Source, job.Status, job.Region, job.Sightings, job.Error, job.Lat, job.Lng, job.RadiusKM, job.WorkerID, job.LastHeartbeatAt, job.Attempts, job.StartedAt, job.FinishedAt, job.CreatedAt)
 	return err
 }
 
 func (s *PostgresStore) UpdateJob(ctx context.Context, job *model.ScrapeJob) error {
-	query := `UPDATE scrape_jobs SET status = $1, sightings = $2, error = $3, started_at = $4, finished_at = $5 WHERE id = $6`
-	_, err := s.db.ExecContext(ctx, query, job.Status, job.Sightings, job.Error, job.StartedAt, job.FinishedAt, job.ID)
+	query := `UPDATE scrape_jobs SET status = $1, sightings = $2, error = $3, worker_id = $4, last_heartbeat_at = $5, attempts = $6, started_at = $7, finished_at = $8 WHERE id = $9`
+	_, err := s.db.ExecContext(ctx, query, job.Status, job.Sightings, job.Error, job.WorkerID, job.LastHeartbeatAt, job.Attempts, job.StartedAt, job.FinishedAt, job.ID)
 	return err
 }
 
 func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.ScrapeJob, error) {
 	var job model.ScrapeJob
-	query := `SELECT id, source, status, region, sightings, error, started_at, finished_at, created_at FROM scrape_jobs WHERE id = $1`
+	query := `SELECT id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at FROM scrape_jobs WHERE id = $1`
 	err := s.db.GetContext(ctx, &job, query, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -391,7 +395,7 @@ func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.Sc
 
 func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]model.ScrapeJob, error) {
 	var jobs []model.ScrapeJob
-	query := `SELECT id, source, status, region, sightings, error, started_at, finished_at, created_at FROM scrape_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	query := `SELECT id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at FROM scrape_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	err := s.db.SelectContext(ctx, &jobs, query, limit, offset)
 	return jobs, err
 }

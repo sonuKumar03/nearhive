@@ -38,6 +38,20 @@ services:
       LOG_LEVEL: info
     restart: unless-stopped
 
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile.crawler
+    container_name: nearhive-crawler
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
+      ENVIRONMENT: development
+      LOG_LEVEL: info
+    restart: unless-stopped
+
   web:
     build:
       context: ./web

@@ -1,0 +1,10 @@
+ALTER TABLE scrape_jobs
+    ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS radius_km DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS worker_id VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_scrape_jobs_queue ON scrape_jobs (status, created_at ASC)
+    WHERE status = 'pending';

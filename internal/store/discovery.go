@@ -423,9 +423,10 @@ func (s *PostgresStore) GetLocationEvidenceSummaries(ctx context.Context, compan
 				l.id AS location_id,
 				COALESCE(NULLIF(s.source_family, ''), s.source) AS source_family,
 				CASE 
-					WHEN COALESCE(NULLIF(s.source_family, ''), s.source) = 'job_ats' THEN 'job'
+					WHEN LOWER(COALESCE(NULLIF(s.source_family, ''), s.source)) IN ('job_ats', 'greenhouse', 'lever', 'jobportal') THEN 'job'
 					ELSE 'company'
 				END AS evidence_type
+
 			FROM locations l
 			JOIN sightings s ON (
 				s.location_id = l.id 

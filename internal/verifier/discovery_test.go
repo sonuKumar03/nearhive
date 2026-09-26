@@ -298,3 +298,62 @@ func TestIndependentEvidence_PresenceRecalculation(t *testing.T) {
 		assert.True(t, loc.Verified, "official_site + public_directory must produce confirmed_office with verified=true")
 	})
 }
+
+func TestEvaluatePresence_NonCanonicalSourceNormalization(t *testing.T) {
+	t.Run("greenhouse alone normalizes to job_ats and yields job_location_only", func(t *testing.T) {
+		p, conf, verified := EvaluatePresence([]string{"greenhouse"})
+		assert.Equal(t, model.PresenceTypeJobLocationOnly, p)
+		assert.InDelta(t, 0.4, conf, 0.01)
+		assert.False(t, verified, "greenhouse must not be classified as office evidence")
+	})
+
+	t.Run("multiple raw job sources greenhouse, lever, jobportal deduplicate to job_ats", func(t *testing.T) {
+		p, conf, verified := EvaluatePresence([]string{"greenhouse", "lever", "jobportal"})
+		assert.Equal(t, model.PresenceTypeJobLocationOnly, p)
+		assert.InDelta(t, 0.4, conf, 0.01)
+		assert.False(t, verified, "multiple job sources must not inflate to confirmed_office")
+	})
+
+	t.Run("osm and wikidata normalize and deduplicate to single open_dataset family", func(t *testing.T) {
+		p, conf, verified := EvaluatePresence([]string{"osm", "wikidata"})
+		assert.Equal(t, model.PresenceTypeProbableOffice, p)
+		assert.InDelta(t, 0.6, conf, 0.01)
+		assert.False(t, verified, "osm and wikidata belong to same open_dataset family and must deduplicate")
+	})
+
+	t.Run("osm plus greenhouse yields two independent families agreeing spatially", func(t *testing.T) {
+		p, conf, verified := EvaluatePresence([]string{"osm", "greenhouse"})
+		assert.Equal(t, model.PresenceTypeConfirmedOffice, p)
+		assert.InDelta(t, 0.9, conf, 0.01)
+		assert.True(t, verified)
+	})
+}
+
+type errorSightingsStore struct {
+	*store.MockStore
+	saveErr error
+}
+
+func (e *errorSightingsStore) SaveSightings(_ context.Context, _ string, _ []model.Sighting) error {
+	return e.saveErr
+}
+
+func TestProcessDiscovery_SaveSightingsErrorPropagation(t *testing.T) {
+	mock := store.NewMockStore()
+	expectedErr := fmt.Errorf("db disk full")
+	errStore := &errorSightingsStore{
+		MockStore: mock,
+		saveErr:   expectedErr,
+	}
+	engine := NewEngine(errStore, nil)
+	s := model.Sighting{
+		ID:          uuid.New(),
+		CompanyName: "Test Co",
+		RawAddress:  "Test Address",
+		Source:      "osm",
+	}
+	err := engine.ProcessDiscoverySighting(context.Background(), s)
+	assert.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+}
+

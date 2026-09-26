@@ -730,14 +730,10 @@ func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uu
 
 		// 1. Sightings linked or within 500m
 		for _, s := range m.Sightings {
-			if s.CompanyID != nil && *s.CompanyID != companyID {
-				continue
-			}
-
 			matched := false
 			if s.LocationID != nil && *s.LocationID == l.ID {
 				matched = true
-			} else if s.Lat != 0 && s.Lng != 0 {
+			} else if s.CompanyID != nil && *s.CompanyID == companyID && s.Lat != 0 && s.Lng != 0 {
 				dist := haversineDistance(l.Lat, l.Lng, s.Lat, s.Lng)
 				if dist <= 500 {
 					matched = true
@@ -756,14 +752,16 @@ func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uu
 				}
 				if fam != "" {
 					familySet[fam] = true
-					if fam == "job_ats" {
+					switch strings.ToLower(fam) {
+					case "job_ats", "greenhouse", "lever", "jobportal":
 						typeSet["job"] = true
-					} else {
+					default:
 						typeSet["company"] = true
 					}
 				}
 			}
 		}
+
 
 		// 2. Technical jobs linked or within 500m
 		for _, j := range m.TechnicalJobs {

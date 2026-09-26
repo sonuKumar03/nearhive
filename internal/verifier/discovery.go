@@ -35,7 +35,9 @@ func (e *Engine) ProcessDiscoverySighting(ctx context.Context, s model.Sighting)
 
 	// Ensure sighting is stored so spatial evidence queries can find it
 	if e.store != nil {
-		_ = e.store.SaveSightings(ctx, s.Source, []model.Sighting{s})
+		if err := e.store.SaveSightings(ctx, s.Source, []model.Sighting{s}); err != nil {
+			return err
+		}
 	}
 
 	// 2. Merge sighting into company & spatial clusters
@@ -98,7 +100,11 @@ func EvaluatePresence(sourceFamilies []string) (model.PresenceType, float64, boo
 	distinctJobFamilies := 0
 
 	for _, rawFam := range sourceFamilies {
-		fam := strings.TrimSpace(rawFam)
+		raw := strings.TrimSpace(rawFam)
+		if raw == "" {
+			continue
+		}
+		fam := InferSourceFamily(raw, "")
 		if fam == "" {
 			continue
 		}
@@ -118,6 +124,7 @@ func EvaluatePresence(sourceFamilies []string) (model.PresenceType, float64, boo
 			distinctOfficeFamilies++
 		}
 	}
+
 
 	totalDistinctFamilies := len(familySet)
 

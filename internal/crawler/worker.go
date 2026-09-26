@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sonukumar/nearhive/internal/model"
 	"github.com/sonukumar/nearhive/internal/queue"
 	"github.com/sonukumar/nearhive/internal/scraper"
 )
@@ -18,6 +19,7 @@ type WorkerConfig struct {
 	WorkerID     string
 	PollInterval time.Duration
 	JobTimeout   time.Duration
+	Concurrency  int
 }
 
 type WorkerDaemon struct {
@@ -25,6 +27,7 @@ type WorkerDaemon struct {
 	orchestrator *scraper.Orchestrator
 	taskMgr      *scraper.TaskManager
 	cfg          WorkerConfig
+	sem          chan struct{}
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
 }
@@ -40,6 +43,9 @@ func NewWorkerDaemon(q queue.JobQueue, orch *scraper.Orchestrator, cfg WorkerCon
 	if cfg.JobTimeout <= 0 {
 		cfg.JobTimeout = 10 * time.Minute
 	}
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 3
+	}
 
 	tm := orch.TaskManager()
 	if tm == nil {
@@ -51,12 +57,13 @@ func NewWorkerDaemon(q queue.JobQueue, orch *scraper.Orchestrator, cfg WorkerCon
 		orchestrator: orch,
 		taskMgr:      tm,
 		cfg:          cfg,
+		sem:          make(chan struct{}, cfg.Concurrency),
 		stopCh:       make(chan struct{}),
 	}
 }
 
 func (w *WorkerDaemon) Start(ctx context.Context) {
-	log.Printf("🚀 Starting NearHive standalone crawler worker [%s]", w.cfg.WorkerID)
+	log.Printf("🚀 Starting NearHive standalone crawler worker [%s] (concurrency: %d)", w.cfg.WorkerID, w.cfg.Concurrency)
 
 	// Start real-time Postgres cancellation listener in background
 	w.wg.Add(1)
@@ -90,23 +97,46 @@ func (w *WorkerDaemon) pollLoop(ctx context.Context) {
 		case <-w.stopCh:
 			return
 		case <-ticker.C:
-			w.processNextJob(ctx)
+			w.drainAvailableSlots(ctx)
 		}
 	}
 }
 
-func (w *WorkerDaemon) processNextJob(ctx context.Context) {
-	job, err := w.queue.Dequeue(ctx, w.cfg.WorkerID)
-	if err != nil {
-		if !errors.Is(ctx.Err(), context.Canceled) {
-			log.Printf("⚠️ Failed to dequeue job: %v", err)
-		}
-		return
-	}
-	if job == nil {
-		return
-	}
+func (w *WorkerDaemon) drainAvailableSlots(ctx context.Context) {
+	for {
+		select {
+		case w.sem <- struct{}{}:
+			job, err := w.queue.Dequeue(ctx, w.cfg.WorkerID)
+			if err != nil {
+				<-w.sem
+				if !errors.Is(ctx.Err(), context.Canceled) {
+					log.Printf("⚠️ Failed to dequeue job: %v", err)
+				}
+				return
+			}
+			if job == nil {
+				// No pending jobs available right now
+				<-w.sem
+				return
+			}
 
+			// Launch concurrent execution in separate goroutine
+			w.wg.Add(1)
+			go func(j *model.ScrapeJob) {
+				defer func() {
+					<-w.sem
+					w.wg.Done()
+				}()
+				w.executeJob(ctx, j)
+			}(job)
+		default:
+			// All concurrency slots occupied
+			return
+		}
+	}
+}
+
+func (w *WorkerDaemon) executeJob(ctx context.Context, job *model.ScrapeJob) {
 	log.Printf("⚡ Worker [%s] processing job %s (region: %v, coords: %v, %v)",
 		w.cfg.WorkerID, job.ID, val(job.Region), valFloat(job.Lat), valFloat(job.Lng))
 

@@ -96,6 +96,104 @@ export default function HomePage() {
   const totalCount = searchData?.meta?.total ?? companies.length;
   const isJobRunning = runningJobs.length > 0;
 
+  // Automatically sync selected company profile with latest verified search data
+  useEffect(() => {
+    if (selectedCompany && companies.length > 0) {
+      const fresh = companies.find((c) => c.id === selectedCompany.id);
+      if (
+        fresh &&
+        (fresh.confidence !== selectedCompany.confidence ||
+          fresh.verified !== selectedCompany.verified ||
+          fresh.address !== selectedCompany.address ||
+          fresh.distance_meters !== selectedCompany.distance_meters)
+      ) {
+        setSelectedCompany(fresh);
+      }
+    }
+  }, [companies, selectedCompany]);
+
+  // Derive pre-selected tech hub region and coordinates for the scrape modal
+  const { selectedRegion, selectedModalCenter, selectedDefaultMode } = (() => {
+    // 1. If a company is currently selected, prioritize its location & city
+    if (selectedCompany) {
+      const companyCoords = { lat: selectedCompany.lat, lng: selectedCompany.lng };
+      if (selectedCompany.city) {
+        const matched = CITY_PRESETS.find(
+          (c) =>
+            selectedCompany.city?.toLowerCase().includes(c.name.toLowerCase()) ||
+            c.name.toLowerCase().includes(selectedCompany.city?.toLowerCase() || '')
+        );
+        if (matched) {
+          return {
+            selectedRegion: matched.name,
+            selectedModalCenter: companyCoords,
+            selectedDefaultMode: 'preset' as const,
+          };
+        }
+      }
+      let closest = CITY_PRESETS[0];
+      let minD = Number.MAX_VALUE;
+      for (const p of CITY_PRESETS) {
+        const d = Math.hypot(p.lat - selectedCompany.lat, p.lng - selectedCompany.lng);
+        if (d < minD) {
+          minD = d;
+          closest = p;
+        }
+      }
+      return {
+        selectedRegion: closest.name,
+        selectedModalCenter: companyCoords,
+        selectedDefaultMode: 'preset' as const,
+      };
+    }
+
+    // 2. If user explicitly used browser geolocation
+    if (isUserLocationActive) {
+      let closest = CITY_PRESETS[0];
+      let minD = Number.MAX_VALUE;
+      for (const p of CITY_PRESETS) {
+        const d = Math.hypot(p.lat - center.lat, p.lng - center.lng);
+        if (d < minD) {
+          minD = d;
+          closest = p;
+        }
+      }
+      return {
+        selectedRegion: closest.name,
+        selectedModalCenter: center,
+        selectedDefaultMode: 'coordinates' as const,
+      };
+    }
+
+    // 3. Check if current center matches an active city preset
+    const activePreset = CITY_PRESETS.find(
+      (c) => Math.abs(c.lat - center.lat) < 0.05 && Math.abs(c.lng - center.lng) < 0.05
+    );
+    if (activePreset) {
+      return {
+        selectedRegion: activePreset.name,
+        selectedModalCenter: center,
+        selectedDefaultMode: 'preset' as const,
+      };
+    }
+
+    // 4. Otherwise, find closest preset to map center
+    let closest = CITY_PRESETS[0];
+    let minD = Number.MAX_VALUE;
+    for (const p of CITY_PRESETS) {
+      const d = Math.hypot(p.lat - center.lat, p.lng - center.lng);
+      if (d < minD) {
+        minD = d;
+        closest = p;
+      }
+    }
+    return {
+      selectedRegion: closest.name,
+      selectedModalCenter: center,
+      selectedDefaultMode: 'preset' as const,
+    };
+  })();
+
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
       {/* Geolocation Feedback Toast */}
@@ -358,8 +456,9 @@ export default function HomePage() {
         <ScrapeModal
           isOpen={isScrapeOpen}
           onClose={() => setIsScrapeOpen(false)}
-          defaultRegion="Bangalore"
-          currentCenter={center}
+          defaultRegion={selectedRegion}
+          defaultMode={selectedDefaultMode}
+          currentCenter={selectedModalCenter}
           currentRadiusKm={radiusKm}
           activeJobIds={activeJobIds}
           onTriggerJob={(id) => {

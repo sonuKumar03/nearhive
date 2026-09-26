@@ -18,6 +18,7 @@ interface MapProps {
   companies: CompanySearchResult[];
   clusters: SpatialCluster[];
   isClusterMode: boolean;
+  selectedCompany?: CompanySearchResult | null;
   onCenterChange: (lat: number, lng: number) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
   onClusterZoom: (lat: number, lng: number) => void;

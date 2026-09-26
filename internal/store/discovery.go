@@ -151,11 +151,28 @@ func (s *PostgresStore) ListDiscoveryJobs(ctx context.Context, userID uuid.UUID,
 }
 
 func (s *PostgresStore) CancelDiscoveryJob(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+	var newStatus string
+	updateQuery := `
+		UPDATE discovery_jobs
+		SET status = 'cancelled', updated_at = NOW()
+		WHERE id = $1
+		  AND (user_id = $2 OR $2 = '00000000-0000-0000-0000-000000000000'::uuid)
+		  AND status IN ('pending', 'running')
+		RETURNING status
+	`
+	err := s.db.QueryRowContext(ctx, updateQuery, id, userID).Scan(&newStatus)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	// No rows updated. Query to disambiguate ErrNotFound vs idempotent cancel vs ErrInvalidJobState
 	var currentStatus string
 	var ownerID uuid.UUID
-
-	query := `SELECT status, user_id FROM discovery_jobs WHERE id = $1`
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&currentStatus, &ownerID)
+	checkQuery := `SELECT status, user_id FROM discovery_jobs WHERE id = $1`
+	err = s.db.QueryRowContext(ctx, checkQuery, id).Scan(&currentStatus, &ownerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -170,14 +187,8 @@ func (s *PostgresStore) CancelDiscoveryJob(ctx context.Context, id uuid.UUID, us
 	if model.DiscoveryStatus(currentStatus) == model.DiscoveryStatusCancelled {
 		return nil
 	}
-	if model.DiscoveryStatus(currentStatus) != model.DiscoveryStatusPending &&
-		model.DiscoveryStatus(currentStatus) != model.DiscoveryStatusRunning {
-		return ErrInvalidJobState
-	}
 
-	updateQuery := `UPDATE discovery_jobs SET status = $1, updated_at = NOW() WHERE id = $2`
-	_, err = s.db.ExecContext(ctx, updateQuery, string(model.DiscoveryStatusCancelled), id)
-	return err
+	return ErrInvalidJobState
 }
 
 func (s *PostgresStore) UpsertDiscoverySourceRun(ctx context.Context, run *model.DiscoverySourceRun) error {

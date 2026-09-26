@@ -109,7 +109,8 @@ func serveCmd() *cobra.Command {
 			jobQueue := queue.NewPostgresQueue(dbStore.SqlxDB(), cfg.DatabaseURL)
 
 			// Discovery Handler
-			discoveryHandler := api.NewDiscoveryHandler(dbStore, verifEngine, "")
+			discoveryHandler := api.NewDiscoveryHandler(dbStore, verifEngine, cfg.DiscoveryWorkerToken).
+				WithLimits(cfg.DiscoveryMaxBatchRecords, cfg.DiscoveryMaxBodyBytes)
 
 			// HTTP Server
 			router := api.NewRouterWithQueue(dbStore, authMgr, orchestrator, jobQueue, cfg.JWTSecret, discoveryHandler)

@@ -79,6 +79,7 @@ type DiscoveryStore interface {
 	UpsertDiscoverySourceRun(ctx context.Context, run *model.DiscoverySourceRun) error
 	GetDiscoverySourceRuns(ctx context.Context, discoveryJobID uuid.UUID) ([]model.DiscoverySourceRun, error)
 	GetLocationEvidenceSummaries(ctx context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error)
+	UpsertDiscoverySighting(ctx context.Context, sighting *model.Sighting) error
 }
 
 

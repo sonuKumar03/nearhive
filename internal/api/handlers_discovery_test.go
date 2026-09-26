@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/sonukumar/nearhive/internal/auth"
 	"github.com/sonukumar/nearhive/internal/model"
+	"github.com/sonukumar/nearhive/internal/store"
+	"github.com/sonukumar/nearhive/internal/verifier"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -381,3 +386,511 @@ func TestDiscoveryJobs_InvalidJobIDs(t *testing.T) {
 	router.ServeHTTP(wCancel, reqCancel)
 	assert.Equal(t, http.StatusBadRequest, wCancel.Code)
 }
+
+func setupDiscoveryBatchRouter(workerToken string) (http.Handler, *store.MockStore) {
+	mockStore := store.NewMockStore()
+	authMgr := auth.NewManager("test-jwt-secret-very-long-enough-32bytes", 24*time.Hour)
+	engine := verifier.NewEngine(mockStore, nil)
+	discHandler := NewDiscoveryHandler(mockStore, engine, workerToken)
+	router := NewRouterWithQueue(mockStore, authMgr, nil, nil, "test-jwt-secret-very-long-enough-32bytes", discHandler)
+	return router, mockStore
+}
+
+func TestDiscoveryIngest_Authentication(t *testing.T) {
+	workerToken := "correct-secret-worker-token-xyz"
+	router, _ := setupDiscoveryBatchRouter(workerToken)
+
+	batchPayload := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "test_source",
+		SourceFamily:    "public_directory",
+		ObservedAt:      time.Now(),
+		Companies:       []model.CompanyEvidence{},
+		Jobs:            []model.TechnicalJobEvidence{},
+	}
+	body, err := json.Marshal(batchPayload)
+	require.NoError(t, err)
+
+	// 1. Missing X-NearHive-Worker-Token header -> 401
+	req1, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+	assert.Equal(t, http.StatusUnauthorized, w1.Code, "missing worker token must be unauthorized")
+
+	// 2. Wrong token -> 401
+	req2, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-NearHive-Worker-Token", "wrong-worker-token")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusUnauthorized, w2.Code, "wrong worker token must be unauthorized")
+
+	// 3. Unconfigured / empty server token -> 401 even if token passed
+	routerNoToken, _ := setupDiscoveryBatchRouter("")
+	req3, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req3.Header.Set("Content-Type", "application/json")
+	req3.Header.Set("X-NearHive-Worker-Token", "some-token")
+	w3 := httptest.NewRecorder()
+	routerNoToken.ServeHTTP(w3, req3)
+	assert.Equal(t, http.StatusUnauthorized, w3.Code, "endpoint must be disabled / unauthorized when server worker token is empty")
+
+	// 4. Correct token -> passes auth (should not be 401)
+	req4, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req4.Header.Set("Content-Type", "application/json")
+	req4.Header.Set("X-NearHive-Worker-Token", workerToken)
+	w4 := httptest.NewRecorder()
+	router.ServeHTTP(w4, req4)
+	assert.NotEqual(t, http.StatusUnauthorized, w4.Code, "valid token must not return 401")
+}
+
+func TestDiscoveryIngest_EnvelopeValidation(t *testing.T) {
+	workerToken := "test-worker-token"
+	router, _ := setupDiscoveryBatchRouter(workerToken)
+
+	// 1. Unknown contract version (must be 1)
+	invalidVersionPayload := map[string]any{
+		"contract_version": 2,
+		"source":           "test_source",
+		"source_family":    "public_directory",
+		"observed_at":      time.Now().Format(time.RFC3339),
+		"companies":        []any{},
+		"jobs":             []any{},
+	}
+	body, _ := json.Marshal(invalidVersionPayload)
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-NearHive-Worker-Token", workerToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "unknown contract version must return 400")
+
+	// 2. Payload over 2 MiB limit
+	mockStore := store.NewMockStore()
+	authMgr := auth.NewManager("test-jwt-secret-very-long-enough-32bytes", 24*time.Hour)
+	discHandler := NewDiscoveryHandler(mockStore, nil, workerToken).WithLimits(500, 1024) // 1 KiB limit for testing
+	rLimited := NewRouterWithQueue(mockStore, authMgr, nil, nil, "test-jwt-secret-very-long-enough-32bytes", discHandler)
+
+	bigString := strings.Repeat("A", 2048)
+	bigPayload := map[string]any{
+		"contract_version": 1,
+		"source":           "test_source",
+		"source_family":    "public_directory",
+		"observed_at":      time.Now().Format(time.RFC3339),
+		"companies": []map[string]any{
+			{"name": bigString},
+		},
+		"jobs": []any{},
+	}
+	bigBody, _ := json.Marshal(bigPayload)
+	reqBig, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bigBody))
+	reqBig.Header.Set("Content-Type", "application/json")
+	reqBig.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wBig := httptest.NewRecorder()
+	rLimited.ServeHTTP(wBig, reqBig)
+	assert.True(t, wBig.Code == http.StatusRequestEntityTooLarge || wBig.Code == http.StatusBadRequest,
+		"payload exceeding max body bytes must return 413 or 400, got: %d", wBig.Code)
+
+	// 3. More than 500 records
+	manyCompanies := make([]map[string]any, 300)
+	for i := range manyCompanies {
+		manyCompanies[i] = map[string]any{"name": fmt.Sprintf("Company %d", i)}
+	}
+	manyJobs := make([]map[string]any, 201)
+	for i := range manyJobs {
+		manyJobs[i] = map[string]any{"title": fmt.Sprintf("Job %d", i), "company_name": "Acme"}
+	}
+	overLimitPayload := map[string]any{
+		"contract_version": 1,
+		"source":           "test_source",
+		"source_family":    "public_directory",
+		"observed_at":      time.Now().Format(time.RFC3339),
+		"companies":        manyCompanies,
+		"jobs":             manyJobs,
+	}
+	overLimitBody, _ := json.Marshal(overLimitPayload)
+	reqOver, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(overLimitBody))
+	reqOver.Header.Set("Content-Type", "application/json")
+	reqOver.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wOver := httptest.NewRecorder()
+	router.ServeHTTP(wOver, reqOver)
+	assert.Equal(t, http.StatusBadRequest, wOver.Code, "payload with > 500 records must return 400")
+}
+
+func TestDiscoveryIngest_PerRecordValidation(t *testing.T) {
+	workerToken := "test-worker-token"
+	router, _ := setupDiscoveryBatchRouter(workerToken)
+
+	validLat := 12.9716
+	validLng := 77.5946
+	invalidLat := 95.0
+	invalidLng := -185.0
+	futurePostedAt := time.Now().Add(365 * 24 * time.Hour) // 1 year in future
+
+	batch := map[string]any{
+		"contract_version": 1,
+		"source":           "mixed_validator",
+		"source_family":    "open_dataset",
+		"observed_at":      time.Now().Format(time.RFC3339),
+		"companies": []map[string]any{
+			// 0: Valid company
+			{
+				"name":         "Valid Company",
+				"lat":          validLat,
+				"lng":          validLng,
+				"evidence_url": "https://example.com/valid",
+			},
+			// 1: Invalid coordinates (lat > 90)
+			{
+				"name": "Invalid Coords Company",
+				"lat":  invalidLat,
+				"lng":  validLng,
+			},
+			// 2: Unsupported URL scheme (ftp://)
+			{
+				"name":         "Bad URL Company",
+				"evidence_url": "ftp://example.com/bad",
+			},
+			// 3: Missing company name
+			{
+				"name": "",
+			},
+		},
+		"jobs": []map[string]any{
+			// 0: Valid job
+			{
+				"company_name":  "Valid Company",
+				"title":         "Senior Go Developer",
+				"canonical_url": "https://example.com/job/1",
+				"lat":           validLat,
+				"lng":           validLng,
+			},
+			// 1: Invalid coordinates (lng < -180)
+			{
+				"company_name": "Valid Company",
+				"title":        "Frontend Engineer",
+				"lat":          validLat,
+				"lng":          invalidLng,
+			},
+			// 2: Unsupported URL scheme (file://)
+			{
+				"company_name":  "Valid Company",
+				"title":         "DevOps Engineer",
+				"canonical_url": "file:///etc/passwd",
+			},
+			// 3: Invalid timestamp (posted_at in distant future)
+			{
+				"company_name": "Valid Company",
+				"title":        "ML Engineer",
+				"posted_at":    futurePostedAt.Format(time.RFC3339),
+			},
+		},
+	}
+
+	body, err := json.Marshal(batch)
+	require.NoError(t, err)
+
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-NearHive-Worker-Token", workerToken)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Partial acceptance must return HTTP 200
+	require.Equal(t, http.StatusOK, w.Code, "mixed valid/invalid batch must return HTTP 200")
+
+	var resp struct {
+		Companies []struct {
+			Index  int    `json:"index"`
+			Status string `json:"status"`
+			ID     string `json:"id,omitempty"`
+			Error  string `json:"error,omitempty"`
+		} `json:"companies"`
+		Jobs []struct {
+			Index  int    `json:"index"`
+			Status string `json:"status"`
+			ID     string `json:"id,omitempty"`
+			Error  string `json:"error,omitempty"`
+		} `json:"jobs"`
+	}
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+
+	// Validate Companies results
+	require.Len(t, resp.Companies, 4)
+	assert.Equal(t, 0, resp.Companies[0].Index)
+	assert.Equal(t, "accepted", resp.Companies[0].Status)
+	assert.NotEmpty(t, resp.Companies[0].ID)
+	assert.Empty(t, resp.Companies[0].Error)
+
+	assert.Equal(t, 1, resp.Companies[1].Index)
+	assert.Equal(t, "rejected", resp.Companies[1].Status)
+	assert.NotEmpty(t, resp.Companies[1].Error)
+
+	assert.Equal(t, 2, resp.Companies[2].Index)
+	assert.Equal(t, "rejected", resp.Companies[2].Status)
+	assert.NotEmpty(t, resp.Companies[2].Error)
+
+	assert.Equal(t, 3, resp.Companies[3].Index)
+	assert.Equal(t, "rejected", resp.Companies[3].Status)
+	assert.NotEmpty(t, resp.Companies[3].Error)
+
+	// Validate Jobs results
+	require.Len(t, resp.Jobs, 4)
+	assert.Equal(t, 0, resp.Jobs[0].Index)
+	assert.Equal(t, "accepted", resp.Jobs[0].Status)
+	assert.NotEmpty(t, resp.Jobs[0].ID)
+	assert.Empty(t, resp.Jobs[0].Error)
+
+	assert.Equal(t, 1, resp.Jobs[1].Index)
+	assert.Equal(t, "rejected", resp.Jobs[1].Status)
+	assert.NotEmpty(t, resp.Jobs[1].Error)
+
+	assert.Equal(t, 2, resp.Jobs[2].Index)
+	assert.Equal(t, "rejected", resp.Jobs[2].Status)
+	assert.NotEmpty(t, resp.Jobs[2].Error)
+
+	assert.Equal(t, 3, resp.Jobs[3].Index)
+	assert.Equal(t, "rejected", resp.Jobs[3].Status)
+	assert.NotEmpty(t, resp.Jobs[3].Error)
+}
+
+func TestDiscoveryIdempotency_API(t *testing.T) {
+	workerToken := "test-worker-token"
+	router, mockStore := setupDiscoveryBatchRouter(workerToken)
+
+	t1 := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+	t2 := time.Now().Truncate(time.Second)
+
+	// Case 1: Company evidence with (source, source_record_id)
+	batchComp1 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "test_api_src",
+		SourceFamily:    "official_site",
+		ObservedAt:      t1,
+		Companies: []model.CompanyEvidence{
+			{
+				SourceRecordID: "api-rec-1",
+				Name:           "API Test Company",
+				Address:        "100 Tech Park",
+			},
+		},
+	}
+	body1, _ := json.Marshal(batchComp1)
+	req1, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body1))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-NearHive-Worker-Token", workerToken)
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+	require.Equal(t, http.StatusOK, w1.Code)
+
+	// Second submission of same (source, source_record_id) with t2
+	batchComp2 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "test_api_src",
+		SourceFamily:    "official_site",
+		ObservedAt:      t2,
+		Companies: []model.CompanyEvidence{
+			{
+				SourceRecordID: "api-rec-1",
+				Name:           "API Test Company",
+				Address:        "100 Tech Park Suite 200",
+			},
+		},
+	}
+	body2, _ := json.Marshal(batchComp2)
+	req2, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-NearHive-Worker-Token", workerToken)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusOK, w2.Code)
+
+	// Assert exactly 1 sighting for test_api_src with api-rec-1 and last_seen_at updated
+	var foundSightings []*model.Sighting
+	for _, s := range mockStore.Sightings {
+		if s.Source == "test_api_src" && s.SourceRecordID != nil && *s.SourceRecordID == "api-rec-1" {
+			foundSightings = append(foundSightings, s)
+		}
+	}
+	require.Len(t, foundSightings, 1, "Should have exactly 1 sighting row for source and source_record_id")
+	assert.WithinDuration(t, t2, foundSightings[0].LastSeenAt, 2*time.Second, "last_seen_at should be updated")
+
+	// Case 2: Company evidence with missing source_record_id and identical content_hash
+	hashKey := "content-hash-api-999"
+	batchHash1 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "test_hash_api_src",
+		SourceFamily:    "open_dataset",
+		ObservedAt:      t1,
+		Companies: []model.CompanyEvidence{
+			{
+				ContentHash: hashKey,
+				Name:        "Hash Test Company",
+				Address:     "200 Data Lane",
+			},
+		},
+	}
+	bHash1, _ := json.Marshal(batchHash1)
+	rHash1, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bHash1))
+	rHash1.Header.Set("Content-Type", "application/json")
+	rHash1.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wHash1 := httptest.NewRecorder()
+	router.ServeHTTP(wHash1, rHash1)
+	require.Equal(t, http.StatusOK, wHash1.Code)
+
+	batchHash2 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "test_hash_api_src",
+		SourceFamily:    "open_dataset",
+		ObservedAt:      t2,
+		Companies: []model.CompanyEvidence{
+			{
+				ContentHash: hashKey,
+				Name:        "Hash Test Company",
+				Address:     "200 Data Lane",
+			},
+		},
+	}
+	bHash2, _ := json.Marshal(batchHash2)
+	rHash2, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bHash2))
+	rHash2.Header.Set("Content-Type", "application/json")
+	rHash2.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wHash2 := httptest.NewRecorder()
+	router.ServeHTTP(wHash2, rHash2)
+	require.Equal(t, http.StatusOK, wHash2.Code)
+
+	var foundHashSightings []*model.Sighting
+	for _, s := range mockStore.Sightings {
+		if s.Source == "test_hash_api_src" && s.ContentHash != nil && *s.ContentHash == hashKey {
+			foundHashSightings = append(foundHashSightings, s)
+		}
+	}
+	require.Len(t, foundHashSightings, 1, "Should have exactly 1 sighting row for source and content_hash")
+	assert.WithinDuration(t, t2, foundHashSightings[0].LastSeenAt, 2*time.Second, "last_seen_at should be updated")
+
+	// Case 3: Technical job with (source, source_job_id)
+	batchJob1 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "job_board_src",
+		SourceFamily:    "job_ats",
+		ObservedAt:      t1,
+		Jobs: []model.TechnicalJobEvidence{
+			{
+				SourceJobID:             "job-rec-1",
+				CompanyName:             "API Test Company",
+				Title:                   "Backend Software Engineer",
+				ContentHash:             "jhash-1",
+				TechnicalClassification: "software_engineering",
+				RuleVersion:             "v1",
+				FirstSeenAt:             t1,
+				LastSeenAt:              t1,
+			},
+		},
+	}
+	bJob1, _ := json.Marshal(batchJob1)
+	rJob1, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bJob1))
+	rJob1.Header.Set("Content-Type", "application/json")
+	rJob1.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wJob1 := httptest.NewRecorder()
+	router.ServeHTTP(wJob1, rJob1)
+	require.Equal(t, http.StatusOK, wJob1.Code)
+
+	batchJob2 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "job_board_src",
+		SourceFamily:    "job_ats",
+		ObservedAt:      t2,
+		Jobs: []model.TechnicalJobEvidence{
+			{
+				SourceJobID:             "job-rec-1",
+				CompanyName:             "API Test Company",
+				Title:                   "Backend Software Engineer (Updated)",
+				ContentHash:             "jhash-1-diff",
+				TechnicalClassification: "software_engineering",
+				RuleVersion:             "v1",
+				FirstSeenAt:             t1,
+				LastSeenAt:              t2,
+			},
+		},
+	}
+	bJob2, _ := json.Marshal(batchJob2)
+	rJob2, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bJob2))
+	rJob2.Header.Set("Content-Type", "application/json")
+	rJob2.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wJob2 := httptest.NewRecorder()
+	router.ServeHTTP(wJob2, rJob2)
+	require.Equal(t, http.StatusOK, wJob2.Code)
+
+	var foundJobs []*model.TechnicalJobPosting
+	for _, j := range mockStore.TechnicalJobs {
+		if j.Source == "job_board_src" && j.SourceJobID != nil && *j.SourceJobID == "job-rec-1" {
+			foundJobs = append(foundJobs, j)
+		}
+	}
+	require.Len(t, foundJobs, 1, "Should have exactly 1 job row for source and source_job_id")
+	assert.WithinDuration(t, t2, foundJobs[0].LastSeenAt, 2*time.Second, "job last_seen_at should be updated")
+
+	// Case 4: Technical job with missing source_job_id and identical content_hash
+	jobHashKey := "tech-job-hash-api-555"
+	batchJobHash1 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "job_hash_src",
+		SourceFamily:    "official_site",
+		ObservedAt:      t1,
+		Jobs: []model.TechnicalJobEvidence{
+			{
+				CompanyName:             "API Test Company",
+				Title:                   "Infrastructure Engineer",
+				ContentHash:             jobHashKey,
+				TechnicalClassification: "infrastructure",
+				RuleVersion:             "v1",
+				FirstSeenAt:             t1,
+				LastSeenAt:              t1,
+			},
+		},
+	}
+	bJHash1, _ := json.Marshal(batchJobHash1)
+	rJHash1, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bJHash1))
+	rJHash1.Header.Set("Content-Type", "application/json")
+	rJHash1.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wJHash1 := httptest.NewRecorder()
+	router.ServeHTTP(wJHash1, rJHash1)
+	require.Equal(t, http.StatusOK, wJHash1.Code)
+
+	batchJobHash2 := model.DiscoveryBatch{
+		ContractVersion: 1,
+		Source:          "job_hash_src",
+		SourceFamily:    "official_site",
+		ObservedAt:      t2,
+		Jobs: []model.TechnicalJobEvidence{
+			{
+				CompanyName:             "API Test Company",
+				Title:                   "Infrastructure Engineer",
+				ContentHash:             jobHashKey,
+				TechnicalClassification: "infrastructure",
+				RuleVersion:             "v1",
+				FirstSeenAt:             t1,
+				LastSeenAt:              t2,
+			},
+		},
+	}
+	bJHash2, _ := json.Marshal(batchJobHash2)
+	rJHash2, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(bJHash2))
+	rJHash2.Header.Set("Content-Type", "application/json")
+	rJHash2.Header.Set("X-NearHive-Worker-Token", workerToken)
+	wJHash2 := httptest.NewRecorder()
+	router.ServeHTTP(wJHash2, rJHash2)
+	require.Equal(t, http.StatusOK, wJHash2.Code)
+
+	var foundHashJobs []*model.TechnicalJobPosting
+	for _, j := range mockStore.TechnicalJobs {
+		if j.Source == "job_hash_src" && j.ContentHash == jobHashKey {
+			foundHashJobs = append(foundHashJobs, j)
+		}
+	}
+	require.Len(t, foundHashJobs, 1, "Should have exactly 1 job row for source and content_hash")
+	assert.WithinDuration(t, t2, foundHashJobs[0].LastSeenAt, 2*time.Second, "job last_seen_at should be updated")
+}
+

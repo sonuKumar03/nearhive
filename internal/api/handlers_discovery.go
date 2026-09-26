@@ -1,10 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,18 +21,33 @@ import (
 )
 
 type DiscoveryHandler struct {
-	store       store.Store
-	engine      *verifier.Engine
-	workerToken string
+	store           store.Store
+	engine          *verifier.Engine
+	workerToken     string
+	maxBatchRecords int
+	maxBodyBytes    int64
 }
 
 func NewDiscoveryHandler(s store.Store, engine *verifier.Engine, workerToken string) *DiscoveryHandler {
 	return &DiscoveryHandler{
-		store:       s,
-		engine:      engine,
-		workerToken: workerToken,
+		store:           s,
+		engine:          engine,
+		workerToken:     workerToken,
+		maxBatchRecords: 500,
+		maxBodyBytes:    2097152, // 2 MiB
 	}
 }
+
+func (h *DiscoveryHandler) WithLimits(maxRecords int, maxBodyBytes int64) *DiscoveryHandler {
+	if maxRecords > 0 {
+		h.maxBatchRecords = maxRecords
+	}
+	if maxBodyBytes > 0 {
+		h.maxBodyBytes = maxBodyBytes
+	}
+	return h
+}
+
 
 type CreateDiscoveryJobRequest struct {
 	Lat      *float64 `json:"lat"`
@@ -199,3 +220,421 @@ func (h *DiscoveryHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		"job":     job,
 	})
 }
+
+func (h *DiscoveryHandler) IngestBatch(w http.ResponseWriter, r *http.Request) {
+	// 1. Worker token authentication with constant-time compare
+	token := r.Header.Get("X-NearHive-Worker-Token")
+	if h.workerToken == "" || token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.workerToken)) != 1 {
+		JSONError(w, http.StatusUnauthorized, "unauthorized", "UNAUTHORIZED", nil)
+		return
+	}
+
+	// 2. Bound request body size
+	maxBytes := h.maxBodyBytes
+	if maxBytes <= 0 {
+		maxBytes = 2097152 // 2 MiB default
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	// 3. Decode payload
+	var batch model.DiscoveryBatch
+	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			JSONError(w, http.StatusRequestEntityTooLarge, "request body too large", "PAYLOAD_TOO_LARGE", nil)
+			return
+		}
+		JSONError(w, http.StatusBadRequest, "invalid request body", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	// 4. Validate contract version
+	if batch.ContractVersion != 1 {
+		JSONError(w, http.StatusBadRequest, "unsupported contract version; must be 1", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	// 5. Validate batch record limits
+	maxRecords := h.maxBatchRecords
+	if maxRecords <= 0 {
+		maxRecords = 500
+	}
+	totalRecords := len(batch.Companies) + len(batch.Jobs)
+	if totalRecords > maxRecords {
+		JSONError(w, http.StatusBadRequest, fmt.Sprintf("batch contains %d records which exceeds max limit of %d", totalRecords, maxRecords), "VALIDATION_ERROR", nil)
+		return
+	}
+
+	now := time.Now()
+	observedAt := batch.ObservedAt
+	if observedAt.IsZero() {
+		observedAt = now
+	}
+
+	companiesResults := make([]BatchRecordResult, 0, len(batch.Companies))
+	for i, c := range batch.Companies {
+		if strings.TrimSpace(c.Name) == "" {
+			companiesResults = append(companiesResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "company name is required",
+			})
+			continue
+		}
+		if !isValidCoordinates(c.Lat, c.Lng) {
+			companiesResults = append(companiesResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "invalid coordinates",
+			})
+			continue
+		}
+		if c.EvidenceURL != "" && !isValidURLScheme(c.EvidenceURL) {
+			companiesResults = append(companiesResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "unsupported URL scheme; must be http or https",
+			})
+			continue
+		}
+
+		contentHash := c.ContentHash
+		if contentHash == "" {
+			contentHash = computeContentHash(batch.Source, c.SourceRecordID, c.Name, c.Address)
+		}
+
+		sourceFamily := batch.SourceFamily
+		if sourceFamily == "" {
+			sourceFamily = verifier.InferSourceFamily(batch.Source, "")
+		}
+
+		var sourceRecID *string
+		if c.SourceRecordID != "" {
+			sourceRecID = &c.SourceRecordID
+		}
+		var sourceURL *string
+		if c.EvidenceURL != "" {
+			sourceURL = &c.EvidenceURL
+		}
+		var discJobID *uuid.UUID
+		if batch.DiscoveryJobID != uuid.Nil {
+			discJobID = &batch.DiscoveryJobID
+		}
+
+		var latVal, lngVal float64
+		if c.Lat != nil {
+			latVal = *c.Lat
+		}
+		if c.Lng != nil {
+			lngVal = *c.Lng
+		}
+
+		meta := make(model.JSONMap)
+		for k, v := range c.Metadata {
+			meta[k] = v
+		}
+		if c.Domain != nil && *c.Domain != "" {
+			meta["domain"] = *c.Domain
+		}
+		if c.Phone != nil && *c.Phone != "" {
+			meta["phone"] = *c.Phone
+		}
+
+		sighting := model.Sighting{
+			ID:             uuid.New(),
+			Source:         batch.Source,
+			SourceFamily:   sourceFamily,
+			SourceRecordID: sourceRecID,
+			ContentHash:    &contentHash,
+			DiscoveryJobID: discJobID,
+			SourceURL:      sourceURL,
+			CompanyName:    c.Name,
+			RawAddress:     c.Address,
+			Lat:            latVal,
+			Lng:            lngVal,
+			Metadata:       meta,
+			FirstSeenAt:    observedAt,
+			LastSeenAt:     observedAt,
+			ScrapedAt:      observedAt,
+		}
+
+		if err := h.store.UpsertDiscoverySighting(r.Context(), &sighting); err != nil {
+			companiesResults = append(companiesResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "failed to store company evidence",
+			})
+			continue
+		}
+
+		if h.engine != nil {
+			_ = h.engine.ProcessDiscoverySighting(r.Context(), sighting)
+		}
+
+		companiesResults = append(companiesResults, BatchRecordResult{
+			Index:  i,
+			Status: "accepted",
+			ID:     sighting.ID.String(),
+		})
+	}
+
+	jobsResults := make([]BatchRecordResult, 0, len(batch.Jobs))
+	for i, j := range batch.Jobs {
+		if strings.TrimSpace(j.CompanyName) == "" {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "company name is required",
+			})
+			continue
+		}
+		if strings.TrimSpace(j.Title) == "" {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "job title is required",
+			})
+			continue
+		}
+		if !isValidCoordinates(j.Lat, j.Lng) {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "invalid coordinates",
+			})
+			continue
+		}
+		if j.CanonicalURL != "" && !isValidURLScheme(j.CanonicalURL) {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "unsupported URL scheme; must be http or https",
+			})
+			continue
+		}
+		if !isValidPostedAt(j.PostedAt) {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "invalid timestamp; posted_at cannot be in the future",
+			})
+			continue
+		}
+
+		contentHash := j.ContentHash
+		if contentHash == "" {
+			contentHash = computeContentHash(batch.Source, j.SourceJobID, j.CompanyName, j.Title)
+		}
+
+		var companyID uuid.UUID
+		if j.CompanyDomain != nil && *j.CompanyDomain != "" {
+			c, err := h.store.FindByDomain(r.Context(), *j.CompanyDomain)
+			if err == nil && c != nil {
+				companyID = c.ID
+			}
+		}
+		if companyID == uuid.Nil {
+			norm := verifier.Normalize(j.CompanyName)
+			c, err := h.store.FindByNormalizedName(r.Context(), norm)
+			if err == nil && c != nil {
+				companyID = c.ID
+			}
+		}
+		if companyID == uuid.Nil {
+			newComp := &model.Company{
+				ID:             uuid.New(),
+				Name:           j.CompanyName,
+				NormalizedName: verifier.Normalize(j.CompanyName),
+				Domain:         j.CompanyDomain,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			if err := h.store.CreateCompany(r.Context(), newComp); err == nil {
+				companyID = newComp.ID
+			} else {
+				norm := verifier.Normalize(j.CompanyName)
+				if c, findErr := h.store.FindByNormalizedName(r.Context(), norm); findErr == nil && c != nil {
+					companyID = c.ID
+				} else {
+					jobsResults = append(jobsResults, BatchRecordResult{
+						Index:  i,
+						Status: "rejected",
+						Error:  "failed to associate company for technical job",
+					})
+					continue
+				}
+			}
+		}
+
+		var locationID *uuid.UUID
+		if j.Lat != nil && j.Lng != nil {
+			loc, err := h.store.FindNearbyLocation(r.Context(), companyID, *j.Lat, *j.Lng, 500)
+			if err == nil && loc != nil {
+				locationID = &loc.ID
+			}
+		}
+
+		var sourceJobID *string
+		if j.SourceJobID != "" {
+			sourceJobID = &j.SourceJobID
+		}
+		var canonicalURL *string
+		if j.CanonicalURL != "" {
+			canonicalURL = &j.CanonicalURL
+		}
+		var locationRaw *string
+		if j.LocationRaw != "" {
+			locationRaw = &j.LocationRaw
+		}
+		var discJobID *uuid.UUID
+		if batch.DiscoveryJobID != uuid.Nil {
+			discJobID = &batch.DiscoveryJobID
+		}
+
+		workArr := j.WorkArrangement
+		if workArr == "" {
+			workArr = model.WorkArrangementUnknown
+		}
+		pubState := j.PublicationState
+		if pubState == "" {
+			pubState = model.PublicationStateObservedRecently
+		}
+		techClass := j.TechnicalClassification
+		if techClass == "" {
+			techClass = "software_engineering"
+		}
+		ruleVer := j.RuleVersion
+		if ruleVer == "" {
+			ruleVer = "v1"
+		}
+
+		firstSeen := j.FirstSeenAt
+		if firstSeen.IsZero() {
+			firstSeen = observedAt
+		}
+		lastSeen := j.LastSeenAt
+		if lastSeen.IsZero() {
+			lastSeen = observedAt
+		}
+
+		sourceFamily := batch.SourceFamily
+		if sourceFamily == "" {
+			sourceFamily = verifier.InferSourceFamily(batch.Source, "job_ats")
+		}
+
+		jobPosting := model.TechnicalJobPosting{
+			ID:                      uuid.New(),
+			CompanyID:               companyID,
+			LocationID:              locationID,
+			DiscoveryJobID:          discJobID,
+			Source:                  batch.Source,
+			SourceFamily:            sourceFamily,
+			SourceJobID:             sourceJobID,
+			CanonicalURL:            canonicalURL,
+			Title:                   j.Title,
+			NormalizedTitle:         strings.ToLower(strings.TrimSpace(j.Title)),
+			DescriptionExcerpt:      j.DescriptionExcerpt,
+			ContentHash:             contentHash,
+			LocationRaw:             locationRaw,
+			Lat:                     j.Lat,
+			Lng:                     j.Lng,
+			WorkArrangement:         workArr,
+			PublicationState:        pubState,
+			PostedAt:                j.PostedAt,
+			PostedAtConfidence:      j.PostedAtConfidence,
+			FirstSeenAt:             firstSeen,
+			LastSeenAt:              lastSeen,
+			IsActive:                true,
+			TechnicalClassification: techClass,
+			RuleVersion:             ruleVer,
+			ClassificationReasons:   j.ClassificationReasons,
+			Metadata:                j.Metadata,
+			CreatedAt:               now,
+			UpdatedAt:               now,
+		}
+
+		if err := h.store.UpsertTechnicalJob(r.Context(), &jobPosting); err != nil {
+			jobsResults = append(jobsResults, BatchRecordResult{
+				Index:  i,
+				Status: "rejected",
+				Error:  "failed to store technical job posting",
+			})
+			continue
+		}
+
+		if h.engine != nil && companyID != uuid.Nil {
+			_ = h.engine.RecalculateLocationEvidence(r.Context(), companyID)
+		}
+
+		jobsResults = append(jobsResults, BatchRecordResult{
+			Index:  i,
+			Status: "accepted",
+			ID:     jobPosting.ID.String(),
+		})
+	}
+
+	JSON(w, http.StatusOK, DiscoveryBatchResponse{
+		Companies: companiesResults,
+		Jobs:      jobsResults,
+	})
+}
+
+type BatchRecordResult struct {
+	Index  int    `json:"index"`
+	Status string `json:"status"`
+	ID     string `json:"id,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+type DiscoveryBatchResponse struct {
+	Companies []BatchRecordResult `json:"companies"`
+	Jobs      []BatchRecordResult `json:"jobs"`
+}
+
+func isValidURLScheme(rawURL string) bool {
+	if rawURL == "" {
+		return true
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return scheme == "http" || scheme == "https"
+}
+
+func isValidCoordinates(lat, lng *float64) bool {
+	if lat == nil && lng == nil {
+		return true
+	}
+	if lat == nil || lng == nil {
+		return false
+	}
+	if *lat < -90.0 || *lat > 90.0 {
+		return false
+	}
+	if *lng < -180.0 || *lng > 180.0 {
+		return false
+	}
+	return true
+}
+
+func isValidPostedAt(t *time.Time) bool {
+	if t == nil {
+		return true
+	}
+	if t.After(time.Now().Add(48 * time.Hour)) {
+		return false
+	}
+	return true
+}
+
+func computeContentHash(parts ...string) string {
+	h := sha256.New()
+	for _, p := range parts {
+		h.Write([]byte(p))
+		h.Write([]byte("|"))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+

@@ -676,6 +676,12 @@ func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJo
 	if job.LastSeenAt.IsZero() {
 		job.LastSeenAt = now
 	}
+	if job.PublicationState == "" {
+		job.PublicationState = model.PublicationStateObservedRecently
+	}
+	if job.WorkArrangement == "" {
+		job.WorkArrangement = model.WorkArrangementUnknown
+	}
 
 	// Match existing by (source, source_job_id) if source_job_id is set, or (source, content_hash)
 	for _, existing := range m.TechnicalJobs {
@@ -706,6 +712,8 @@ func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJo
 			existing.ClassificationReasons = job.ClassificationReasons
 			existing.Metadata = job.Metadata
 			existing.UpdatedAt = now
+			job.ID = existing.ID
+			job.FirstSeenAt = existing.FirstSeenAt
 			return nil
 		}
 	}
@@ -807,5 +815,64 @@ func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uu
 	}
 
 	return summaries, nil
+}
+
+func (m *MockStore) UpsertDiscoverySighting(_ context.Context, s *model.Sighting) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s.ID == uuid.Nil {
+		s.ID = uuid.New()
+	}
+	now := time.Now()
+	if s.FirstSeenAt.IsZero() {
+		s.FirstSeenAt = now
+	}
+	if s.LastSeenAt.IsZero() {
+		s.LastSeenAt = now
+	}
+	if s.ScrapedAt.IsZero() {
+		s.ScrapedAt = now
+	}
+
+	for _, existing := range m.Sightings {
+		matched := false
+		if s.SourceRecordID != nil && *s.SourceRecordID != "" && existing.SourceRecordID != nil && *existing.SourceRecordID == *s.SourceRecordID && existing.Source == s.Source {
+			matched = true
+		} else if (s.SourceRecordID == nil || *s.SourceRecordID == "") && s.ContentHash != nil && *s.ContentHash != "" && existing.ContentHash != nil && *existing.ContentHash == *s.ContentHash && existing.Source == s.Source {
+			matched = true
+		}
+
+		if matched {
+			existing.LastSeenAt = s.LastSeenAt
+			existing.ScrapedAt = s.ScrapedAt
+			if s.RawAddress != "" {
+				existing.RawAddress = s.RawAddress
+			}
+			if s.Lat != 0 {
+				existing.Lat = s.Lat
+			}
+			if s.Lng != 0 {
+				existing.Lng = s.Lng
+			}
+			if s.Metadata != nil {
+				if existing.Metadata == nil {
+					existing.Metadata = make(model.JSONMap)
+				}
+				for k, v := range s.Metadata {
+					existing.Metadata[k] = v
+				}
+			}
+			s.ID = existing.ID
+			s.CompanyID = existing.CompanyID
+			s.LocationID = existing.LocationID
+			s.FirstSeenAt = existing.FirstSeenAt
+			return nil
+		}
+	}
+
+	sCopy := *s
+	m.Sightings[s.ID] = &sCopy
+	return nil
 }
 

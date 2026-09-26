@@ -314,6 +314,12 @@ func (s *PostgresStore) UpsertTechnicalJob(ctx context.Context, job *model.Techn
 	if job.LastSeenAt.IsZero() {
 		job.LastSeenAt = now
 	}
+	if job.PublicationState == "" {
+		job.PublicationState = model.PublicationStateObservedRecently
+	}
+	if job.WorkArrangement == "" {
+		job.WorkArrangement = model.WorkArrangementUnknown
+	}
 
 	reasons := pq.StringArray(job.ClassificationReasons)
 	if reasons == nil {
@@ -358,6 +364,7 @@ func (s *PostgresStore) UpsertTechnicalJob(ctx context.Context, job *model.Techn
 				classification_reasons = EXCLUDED.classification_reasons,
 				metadata = EXCLUDED.metadata,
 				updated_at = NOW()
+			RETURNING id, first_seen_at, last_seen_at
 		`
 	} else {
 		query = `
@@ -395,10 +402,13 @@ func (s *PostgresStore) UpsertTechnicalJob(ctx context.Context, job *model.Techn
 				classification_reasons = EXCLUDED.classification_reasons,
 				metadata = EXCLUDED.metadata,
 				updated_at = NOW()
+			RETURNING id, first_seen_at, last_seen_at
 		`
 	}
 
-	_, err := s.db.ExecContext(
+	var retID uuid.UUID
+	var retFirstSeen, retLastSeen time.Time
+	err := s.db.QueryRowContext(
 		ctx, query,
 		job.ID, job.CompanyID, job.LocationID, job.DiscoveryJobID, job.Source, job.SourceFamily, job.SourceJobID,
 		job.CanonicalURL, job.Title, job.NormalizedTitle, job.DescriptionExcerpt, job.ContentHash,
@@ -406,8 +416,14 @@ func (s *PostgresStore) UpsertTechnicalJob(ctx context.Context, job *model.Techn
 		job.PostedAtConfidence, job.FirstSeenAt, job.LastSeenAt, job.IsActive,
 		job.TechnicalClassification, job.RuleVersion, reasons, job.Metadata,
 		job.CreatedAt, job.UpdatedAt,
-	)
-	return err
+	).Scan(&retID, &retFirstSeen, &retLastSeen)
+	if err != nil {
+		return err
+	}
+	job.ID = retID
+	job.FirstSeenAt = retFirstSeen
+	job.LastSeenAt = retLastSeen
+	return nil
 }
 
 func (s *PostgresStore) UpdateLocationPresence(ctx context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error {
@@ -466,5 +482,112 @@ func (s *PostgresStore) GetLocationEvidenceSummaries(ctx context.Context, compan
 		summaries = []model.LocationEvidenceSummary{}
 	}
 	return summaries, nil
+}
+
+func (s *PostgresStore) UpsertDiscoverySighting(ctx context.Context, sighting *model.Sighting) error {
+	if sighting.ID == uuid.Nil {
+		sighting.ID = uuid.New()
+	}
+	now := time.Now()
+	if sighting.FirstSeenAt.IsZero() {
+		sighting.FirstSeenAt = now
+	}
+	if sighting.LastSeenAt.IsZero() {
+		sighting.LastSeenAt = now
+	}
+	if sighting.ScrapedAt.IsZero() {
+		sighting.ScrapedAt = now
+	}
+	if sighting.Metadata == nil {
+		sighting.Metadata = make(model.JSONMap)
+	}
+
+	var query string
+	if sighting.SourceRecordID != nil && *sighting.SourceRecordID != "" {
+		query = `
+			INSERT INTO sightings (
+				id, source, source_family, source_record_id, content_hash, discovery_job_id,
+				source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id,
+				first_seen_at, last_seen_at, scraped_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8, $9, $10, $11, $12, $13, $14,
+				$15, $16, $17
+			)
+			ON CONFLICT (source, source_record_id) WHERE source_record_id IS NOT NULL DO UPDATE SET
+				source_family = COALESCE(NULLIF(EXCLUDED.source_family, ''), sightings.source_family),
+				content_hash = COALESCE(EXCLUDED.content_hash, sightings.content_hash),
+				discovery_job_id = COALESCE(EXCLUDED.discovery_job_id, sightings.discovery_job_id),
+				source_url = COALESCE(EXCLUDED.source_url, sightings.source_url),
+				raw_address = COALESCE(NULLIF(EXCLUDED.raw_address, ''), sightings.raw_address),
+				lat = CASE WHEN EXCLUDED.lat != 0 THEN EXCLUDED.lat ELSE sightings.lat END,
+				lng = CASE WHEN EXCLUDED.lng != 0 THEN EXCLUDED.lng ELSE sightings.lng END,
+				metadata = sightings.metadata || EXCLUDED.metadata,
+				last_seen_at = EXCLUDED.last_seen_at,
+				scraped_at = EXCLUDED.scraped_at
+			RETURNING id, company_id, location_id, first_seen_at, last_seen_at
+		`
+	} else if sighting.ContentHash != nil && *sighting.ContentHash != "" {
+		query = `
+			INSERT INTO sightings (
+				id, source, source_family, source_record_id, content_hash, discovery_job_id,
+				source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id,
+				first_seen_at, last_seen_at, scraped_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8, $9, $10, $11, $12, $13, $14,
+				$15, $16, $17
+			)
+			ON CONFLICT (source, content_hash) WHERE content_hash IS NOT NULL AND source_record_id IS NULL DO UPDATE SET
+				source_family = COALESCE(NULLIF(EXCLUDED.source_family, ''), sightings.source_family),
+				discovery_job_id = COALESCE(EXCLUDED.discovery_job_id, sightings.discovery_job_id),
+				source_url = COALESCE(EXCLUDED.source_url, sightings.source_url),
+				raw_address = COALESCE(NULLIF(EXCLUDED.raw_address, ''), sightings.raw_address),
+				lat = CASE WHEN EXCLUDED.lat != 0 THEN EXCLUDED.lat ELSE sightings.lat END,
+				lng = CASE WHEN EXCLUDED.lng != 0 THEN EXCLUDED.lng ELSE sightings.lng END,
+				metadata = sightings.metadata || EXCLUDED.metadata,
+				last_seen_at = EXCLUDED.last_seen_at,
+				scraped_at = EXCLUDED.scraped_at
+			RETURNING id, company_id, location_id, first_seen_at, last_seen_at
+		`
+	} else {
+		query = `
+			INSERT INTO sightings (
+				id, source, source_family, source_record_id, content_hash, discovery_job_id,
+				source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id,
+				first_seen_at, last_seen_at, scraped_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6,
+				$7, $8, $9, $10, $11, $12, $13, $14,
+				$15, $16, $17
+			)
+			ON CONFLICT (id) DO UPDATE SET
+				last_seen_at = EXCLUDED.last_seen_at,
+				scraped_at = EXCLUDED.scraped_at
+			RETURNING id, company_id, location_id, first_seen_at, last_seen_at
+		`
+	}
+
+	var retID uuid.UUID
+	var retCompID, retLocID *uuid.UUID
+	var retFirstSeen, retLastSeen time.Time
+
+	err := s.db.QueryRowContext(
+		ctx, query,
+		sighting.ID, sighting.Source, sighting.SourceFamily, sighting.SourceRecordID, sighting.ContentHash, sighting.DiscoveryJobID,
+		sighting.SourceURL, sighting.CompanyName, sighting.RawAddress, sighting.Lat, sighting.Lng, sighting.Metadata, sighting.CompanyID, sighting.LocationID,
+		sighting.FirstSeenAt, sighting.LastSeenAt, sighting.ScrapedAt,
+	).Scan(&retID, &retCompID, &retLocID, &retFirstSeen, &retLastSeen)
+	if err != nil {
+		return err
+	}
+
+	sighting.ID = retID
+	sighting.CompanyID = retCompID
+	sighting.LocationID = retLocID
+	sighting.FirstSeenAt = retFirstSeen
+	sighting.LastSeenAt = retLastSeen
+
+	return nil
 }
 

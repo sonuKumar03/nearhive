@@ -431,3 +431,175 @@ func TestDiscoveryStore_LocationEvidenceAndPresence(t *testing.T) {
 	})
 }
 
+func TestDiscoveryIdempotency_StoreSightingAndJob(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		uid := uuid.New().String()[:8]
+
+		// Common company for technical jobs
+		companyID := uuid.New()
+		err := s.CreateCompany(ctx, &model.Company{
+			ID:             companyID,
+			Name:           fmt.Sprintf("Idemp Corp %s", uid),
+			NormalizedName: fmt.Sprintf("idemp corp %s", uid),
+		})
+		require.NoError(t, err)
+
+		t1 := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+		t2 := time.Now().Truncate(time.Second)
+
+		// 1. Sighting with (source, source_record_id)
+		src1 := fmt.Sprintf("src1_%s", uid)
+		recID1 := "record-001"
+		s1 := &model.Sighting{
+			ID:             uuid.New(),
+			Source:         src1,
+			SourceFamily:   "official_site",
+			SourceRecordID: &recID1,
+			CompanyName:    "Acme Sighting",
+			RawAddress:     "100 First St",
+			Lat:            12.91,
+			Lng:            77.61,
+			FirstSeenAt:    t1,
+			LastSeenAt:     t1,
+			ScrapedAt:      t1,
+		}
+		err = s.UpsertDiscoverySighting(ctx, s1)
+		require.NoError(t, err)
+
+		s1Update := &model.Sighting{
+			ID:             uuid.New(),
+			Source:         src1,
+			SourceFamily:   "official_site",
+			SourceRecordID: &recID1,
+			CompanyName:    "Acme Sighting",
+			RawAddress:     "100 First St Updated",
+			Lat:            12.91,
+			Lng:            77.61,
+			FirstSeenAt:    t1,
+			LastSeenAt:     t2,
+			ScrapedAt:      t2,
+		}
+		err = s.UpsertDiscoverySighting(ctx, s1Update)
+		require.NoError(t, err)
+		assert.Equal(t, s1.ID, s1Update.ID, "Sighting ID should be preserved across idempotency updates")
+
+		// 2. Sighting with missing source_record_id and identical content_hash
+		src2 := fmt.Sprintf("src2_%s", uid)
+		hash2 := fmt.Sprintf("hash_%s", uid)
+		s2 := &model.Sighting{
+			ID:           uuid.New(),
+			Source:       src2,
+			SourceFamily: "public_directory",
+			ContentHash:  &hash2,
+			CompanyName:  "Beta Sighting",
+			RawAddress:   "200 Second St",
+			FirstSeenAt:  t1,
+			LastSeenAt:   t1,
+			ScrapedAt:    t1,
+		}
+		err = s.UpsertDiscoverySighting(ctx, s2)
+		require.NoError(t, err)
+
+		s2Update := &model.Sighting{
+			ID:           uuid.New(),
+			Source:       src2,
+			SourceFamily: "public_directory",
+			ContentHash:  &hash2,
+			CompanyName:  "Beta Sighting",
+			RawAddress:   "200 Second St Updated",
+			FirstSeenAt:  t1,
+			LastSeenAt:   t2,
+			ScrapedAt:    t2,
+		}
+		err = s.UpsertDiscoverySighting(ctx, s2Update)
+		require.NoError(t, err)
+		assert.Equal(t, s2.ID, s2Update.ID)
+
+		// 3. Technical Job with (source, source_job_id)
+		srcJob1 := fmt.Sprintf("srcjob1_%s", uid)
+		sJobID := "sjob-999"
+		j1 := &model.TechnicalJobPosting{
+			ID:                      uuid.New(),
+			CompanyID:               companyID,
+			Source:                  srcJob1,
+			SourceFamily:            "job_ats",
+			SourceJobID:             &sJobID,
+			Title:                   "Staff Engineer",
+			NormalizedTitle:         "staff engineer",
+			ContentHash:             fmt.Sprintf("ch1_%s", uid),
+			FirstSeenAt:             t1,
+			LastSeenAt:              t1,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}
+		err = s.UpsertTechnicalJob(ctx, j1)
+		require.NoError(t, err)
+
+		j1Update := &model.TechnicalJobPosting{
+			ID:                      uuid.New(),
+			CompanyID:               companyID,
+			Source:                  srcJob1,
+			SourceFamily:            "job_ats",
+			SourceJobID:             &sJobID,
+			Title:                   "Staff Engineer (Updated)",
+			NormalizedTitle:         "staff engineer (updated)",
+			ContentHash:             fmt.Sprintf("ch1_diff_%s", uid),
+			FirstSeenAt:             t1,
+			LastSeenAt:              t2,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}
+		err = s.UpsertTechnicalJob(ctx, j1Update)
+		require.NoError(t, err)
+
+		// 4. Technical Job with missing source_job_id and identical content_hash
+		srcJob2 := fmt.Sprintf("srcjob2_%s", uid)
+		jHash2 := fmt.Sprintf("jhash2_%s", uid)
+		j2 := &model.TechnicalJobPosting{
+			ID:                      uuid.New(),
+			CompanyID:               companyID,
+			Source:                  srcJob2,
+			SourceFamily:            "official_site",
+			Title:                   "DevOps Engineer",
+			NormalizedTitle:         "devops engineer",
+			ContentHash:             jHash2,
+			FirstSeenAt:             t1,
+			LastSeenAt:              t1,
+			IsActive:                true,
+			TechnicalClassification: "infrastructure",
+			RuleVersion:             "v1",
+		}
+		err = s.UpsertTechnicalJob(ctx, j2)
+		require.NoError(t, err)
+
+		j2Update := &model.TechnicalJobPosting{
+			ID:                      uuid.New(),
+			CompanyID:               companyID,
+			Source:                  srcJob2,
+			SourceFamily:            "official_site",
+			Title:                   "DevOps Engineer (Updated)",
+			NormalizedTitle:         "devops engineer (updated)",
+			ContentHash:             jHash2,
+			FirstSeenAt:             t1,
+			LastSeenAt:              t2,
+			IsActive:                true,
+			TechnicalClassification: "infrastructure",
+			RuleVersion:             "v1",
+		}
+		err = s.UpsertTechnicalJob(ctx, j2Update)
+		require.NoError(t, err)
+
+		// Verification: Query jobs for company
+		jobs, err := s.GetTechnicalJobsByCompany(ctx, companyID, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, jobs, 2, "Should have exactly 2 distinct technical jobs (1 from j1, 1 from j2)")
+
+		for _, j := range jobs {
+			assert.WithinDuration(t, t2, j.LastSeenAt, 2*time.Second, "last_seen_at should be updated to t2")
+		}
+	})
+}
+

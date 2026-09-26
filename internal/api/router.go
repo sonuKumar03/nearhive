@@ -72,6 +72,9 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 	r.Post("/api/v1/auth/register", authHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 
+	// Internal discovery batch ingestion route (outside JWT authentication)
+	r.Post("/api/v1/internal/discovery/batches", discoveryHandler.IngestBatch)
+
 	// Protected routes (strictly requires JWT)
 	r.Group(func(protected chi.Router) {
 		protected.Use(AuthMiddleware(authMgr))

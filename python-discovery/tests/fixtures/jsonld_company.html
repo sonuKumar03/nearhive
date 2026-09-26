@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Acme Corporation - Headquarters</title>
+  <!-- Block 1: Organization with address and phone -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": "https://acme.example.com/#org",
+    "name": "Acme Corporation",
+    "url": "https://acme.example.com",
+    "telephone": "+1-512-555-0100",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "100 Tech Blvd",
+      "addressLocality": "Austin",
+      "addressRegion": "TX",
+      "postalCode": "78701",
+      "addressCountry": "US"
+    }
+  }
+  </script>
+
+  <!-- Block 2: Malformed JSON block that should be skipped gracefully -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Broken JSON Entity"
+    CORRUPTED_JSON_CONTENT_HERE
+  }
+  </script>
+
+  <!-- Block 3: @graph with LocalBusiness and GeoCoordinates -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://acme.example.com/labs/austin",
+        "name": "Acme Austin Lab",
+        "url": "https://acme.example.com/labs/austin",
+        "telephone": "+1-512-555-0199",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "102 Tech Blvd Suite 400",
+          "addressLocality": "Austin",
+          "addressRegion": "TX",
+          "postalCode": "78701",
+          "addressCountry": "US"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": 30.2672,
+          "longitude": -97.7431
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <h1>Welcome to Acme Corporation</h1>
+  <p>Leading innovations in tech.</p>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Careers at CloudScale Systems</title>
+  <!-- Block 1: Valid remote JobPosting with structured address, geo, and PropertyValue identifier -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "JobPosting",
+    "title": "Senior Backend Engineer",
+    "identifier": {
+      "@type": "PropertyValue",
+      "name": "CloudScale",
+      "value": "JOB-1024"
+    },
+    "url": "https://cloudscale.example.com/jobs/senior-backend-engineer",
+    "datePosted": "2026-09-25T10:00:00Z",
+    "jobLocationType": "TELECOMMUTE",
+    "description": "<p>We are looking for a <strong>Senior Backend Engineer</strong> to scale our distributed systems using Go and Python.</p>",
+    "hiringOrganization": {
+      "@type": "Organization",
+      "name": "CloudScale Systems",
+      "url": "https://cloudscale.example.com"
+    },
+    "jobLocation": {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "500 Main St",
+        "addressLocality": "Austin",
+        "addressRegion": "TX",
+        "postalCode": "78701",
+        "addressCountry": "US"
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 30.2680,
+        "longitude": -97.7440
+      }
+    }
+  }
+  </script>
+
+  <!-- Block 2: Corrupted JSON-LD that should be skipped -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "JobPosting",
+    "title": "Unclosed job posting",
+  </script>
+
+  <!-- Block 3: @graph with an older/stale in-office job posting -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "JobPosting",
+        "@id": "https://cloudscale.example.com/jobs/staff-infra-2048",
+        "title": "Staff Infrastructure Engineer",
+        "url": "https://cloudscale.example.com/jobs/staff-infra-engineer",
+        "datePosted": "2026-01-15T08:00:00Z",
+        "description": "Lead cloud infrastructure, Kubernetes clusters, and observability.",
+        "hiringOrganization": "CloudScale Systems",
+        "jobLocation": {
+          "@type": "Place",
+          "address": "Austin, TX, US"
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <h1>Open Roles at CloudScale</h1>
+</body>
+</html>

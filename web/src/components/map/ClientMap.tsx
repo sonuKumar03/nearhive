@@ -66,7 +66,7 @@ export default function ClientMap({
     const epicenterIcon = L.divIcon({
       className: 'epicenter-marker',
       html: `
-        <div class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4 cursor-grab active:cursor-grabbing">
+        <div role="button" aria-label="Search center location, draggable marker" class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4 cursor-grab active:cursor-grabbing">
           <div class="absolute w-8 h-8 rounded-full bg-amber-500/30 epicenter-pulse"></div>
           <div class="w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950 shadow-lg shadow-amber-500/50"></div>
         </div>
@@ -77,6 +77,8 @@ export default function ClientMap({
     const epicenter = L.marker([center.lat, center.lng], {
       icon: epicenterIcon,
       draggable: true,
+      title: 'Search center epicenter: drag or click anywhere on map to reposition',
+      alt: 'Search center epicenter marker',
     }).addTo(map);
 
     epicenter.on('dragend', (e) => {
@@ -135,14 +137,18 @@ export default function ClientMap({
         const icon = L.divIcon({
           className: 'cluster-pin',
           html: `
-            <div class="flex items-center justify-center rounded-full shadow-2xl border-2 border-amber-400 bg-amber-500/90 text-slate-950 font-mono font-black transition-transform hover:scale-110 cursor-pointer" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
+            <div role="button" aria-label="Cluster of ${c.count} companies, click to zoom" class="flex items-center justify-center rounded-full shadow-2xl border-2 border-amber-400 bg-amber-500/90 text-slate-950 font-mono font-black transition-transform hover:scale-110 cursor-pointer" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
               ${c.count}
             </div>
           `,
           iconSize: [size, size],
         });
 
-        const marker = L.marker([c.lat, c.lng], { icon });
+        const marker = L.marker([c.lat, c.lng], {
+          icon,
+          title: `Cluster of ${c.count} companies`,
+          alt: `Cluster of ${c.count} companies`,
+        });
         marker.on('click', () => {
           onClusterZoomRef.current(c.lat, c.lng);
         });
@@ -157,14 +163,18 @@ export default function ClientMap({
         const customIcon = L.divIcon({
           className: 'company-pin',
           html: `
-            <div class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60 transition-transform hover:scale-110 cursor-pointer" style="background-color: ${markerColor}">
+            <div role="button" aria-label="${comp.name}, ${conf}% verified, click to view details" class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60 transition-transform hover:scale-110 cursor-pointer" style="background-color: ${markerColor}">
               <span class="text-xs">🏢</span>
             </div>
           `,
           iconSize: [28, 28],
         });
 
-        const marker = L.marker([comp.lat, comp.lng], { icon: customIcon });
+        const marker = L.marker([comp.lat, comp.lng], {
+          icon: customIcon,
+          title: `${comp.name} (${conf}% verified)`,
+          alt: `${comp.name} office pin`,
+        });
         marker.on('click', () => onSelectCompanyRef.current(comp));
         markerLayerRef.current?.addLayer(marker);
       });

@@ -9,6 +9,7 @@ interface SidebarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
+  className?: string;
 }
 
 export default function Sidebar({
@@ -18,9 +19,13 @@ export default function Sidebar({
   searchQuery,
   onSearchChange,
   onSelectCompany,
+  className = '',
 }: SidebarProps) {
   return (
-    <aside className="w-full sm:w-96 md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 shrink-0 h-full">
+    <aside
+      aria-label="Discovered tech companies list"
+      className={`w-full md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 shrink-0 h-full ${className}`}
+    >
       {/* Search Header */}
       <div className="p-3.5 border-b border-slate-800/80 space-y-2.5">
         <div className="flex items-center justify-between">
@@ -35,13 +40,15 @@ export default function Sidebar({
         {/* Filter Input */}
         <div className="relative">
           <input
+            id="company-search-filter"
+            aria-label="Filter companies by name, industry, or tech park"
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Filter by company, industry, or tech park..."
-            className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-1.5 pl-8 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/50 transition-colors"
+            className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-1.5 pl-8 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-amber-500/50 transition-colors"
           />
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
         </div>
       </div>
 
@@ -50,7 +57,7 @@ export default function Sidebar({
         {isLoading ? (
           <div className="py-16 text-center space-y-3">
             <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-slate-400 font-medium">Querying PostGIS ST_DWithin index...</p>
+            <p className="text-xs text-slate-400 font-medium">Searching tech offices within radius...</p>
           </div>
         ) : companies.length === 0 ? (
           <div className="py-14 px-6 text-center space-y-3">

@@ -43,7 +43,11 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
             <span className="text-[10px] text-slate-400 font-mono">ID: {company.id.slice(0, 8)}...</span>
           </div>
         </div>
-        <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800">
+        <button
+          onClick={onClose}
+          aria-label="Close company details"
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -60,7 +64,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
             <span className="text-xl font-mono font-bold text-emerald-400">{conf}%</span>
           </div>
           <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">
-            PostGIS Verified
+            Spatial Verified
           </span>
         </div>
 
@@ -69,12 +73,12 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
           <h4 className="text-xs font-semibold text-slate-300">Company Overview</h4>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1">
-              <span className="text-[10px] text-slate-500">Industry</span>
+              <span className="text-[10px] text-slate-400">Industry</span>
               <p className="font-medium text-slate-200">{company.industry || details?.company?.industry || 'Technology'}</p>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1">
-              <span className="text-[10px] text-slate-500">Employees</span>
-              <p className="font-medium text-slate-200">{company.employee_count || details?.company?.employee_count || '100 - 500'}</p>
+              <span className="text-[10px] text-slate-400">Employees</span>
+              <p className="font-medium text-slate-200">{company.employee_count || details?.company?.employee_count || 'Not specified'}</p>
             </div>
           </div>
           {(company.domain || details?.company?.domain) && (
@@ -103,7 +107,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
           </h4>
           <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1.5 text-xs text-slate-300">
             <p>{company.address}</p>
-            <p className="font-mono text-[11px] text-slate-500">
+            <p className="font-mono text-[11px] text-slate-400">
               Coordinates: {company.lat.toFixed(5)}, {company.lng.toFixed(5)}
             </p>
           </div>
@@ -116,7 +120,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
                   .map((loc) => (
                     <div key={loc.id} className="p-2 rounded bg-slate-950/60 border border-slate-800/50 text-[11px] text-slate-400">
                       <p>{loc.address || loc.label || 'Office location'}</p>
-                      <span className="font-mono text-[10px] text-slate-500">
+                      <span className="font-mono text-[10px] text-slate-400">
                         {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)} • {Math.round(loc.confidence * 100)}% conf
                       </span>
                     </div>
@@ -130,7 +134,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
         <div className="space-y-2">
           <h4 className="text-xs font-semibold text-slate-300">Verification Sightings Audit</h4>
           {loadingSightings ? (
-            <div className="py-6 text-center text-xs text-slate-500">Loading audit trail...</div>
+            <div className="py-6 text-center text-xs text-slate-400">Loading audit trail...</div>
           ) : (
             <SightingsTimeline sightings={sightingsData?.sightings || []} />
           )}

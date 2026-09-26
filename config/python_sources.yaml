@@ -1,0 +1,25 @@
+version: 1
+
+directories:
+  - id: "tech_parks_directory"
+    name: "Tech Parks Public Directory"
+    url_template: "https://directory.example.com/search?lat={lat}&lng={lng}&radius={radius}&page={page}"
+    pagination:
+      page_param: "page"
+      start_page: 1
+      page_ceiling: 5
+    selectors:
+      card: ".directory-card"
+      name: ".company-title::text"
+      source_record_id: "@data-company-id"
+      detail_url: "a.detail-link::attr(href)"
+      address: ".company-location::text"
+      phone: ".company-phone::text"
+      website: "a.website-link::attr(href)"
+    detail_selectors:
+      address: ".detail-address::text"
+      phone: ".detail-phone::text"
+      website: "a.official-website::attr(href)"
+      lat: ".geo-lat::text"
+      lng: ".geo-lng::text"
+      description: ".company-desc::text"

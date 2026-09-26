@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Nova Robotics - Official Site</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "@id": "https://novarobotics.example.com/#org",
+      "name": "Nova Robotics Inc.",
+      "url": "https://novarobotics.example.com",
+      "telephone": "+1-555-0100",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "100 Robotics Boulevard",
+        "addressLocality": "San Francisco",
+        "addressRegion": "CA",
+        "postalCode": "94107",
+        "addressCountry": "US"
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 37.7749,
+        "longitude": -122.4194
+      }
+    }
+    </script>
+</head>
+<body>
+    <header>
+        <nav>
+            <!-- Same-site allowed links -->
+            <a href="/about">About Us</a>
+            <a href="/contact">Contact</a>
+            <a href="/locations">Locations</a>
+            <a href="/careers">Careers</a>
+
+            <!-- Same-site disallowed / rejected links -->
+            <a href="/login">Sign In</a>
+            <a href="/logout">Log Out</a>
+            <a href="/account">My Account</a>
+            <a href="/cart">Shopping Cart</a>
+            <a href="/forms/contact-us">Submit Request Form</a>
+
+            <!-- Cross-domain disallowed links -->
+            <a href="https://twitter.com/novarobotics">Twitter</a>
+            <a href="https://linkedin.com/company/novarobotics">LinkedIn</a>
+            <a href="https://partner-portal.otherdomain.com/login">Partner Portal</a>
+        </nav>
+    </header>
+    <main>
+        <h1>Autonomous Systems for Industrial Automation</h1>
+        <p>Leading the next generation of autonomous warehouse robotics.</p>
+    </main>
+    <footer>
+        <a href="/sitemap.xml">Sitemap</a>
+    </footer>
+</body>
+</html>

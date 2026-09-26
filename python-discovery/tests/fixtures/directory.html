@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tech Parks Public Directory</title>
+</head>
+<body>
+    <div class="directory-container">
+        <h1>Tech Park Tenants</h1>
+        <div class="directory-list">
+            <!-- Card 1: Complete valid company -->
+            <div class="directory-card" data-company-id="dir-101">
+                <h3 class="company-title">Acme Robotics</h3>
+                <span class="company-location">Whitefield Industrial Area, Bangalore</span>
+                <span class="company-phone">+91 80 1234 5678</span>
+                <a class="detail-link" href="/directory/companies/dir-101">View Details</a>
+                <a class="website-link" href="https://acmerobotics.example.com">Visit Website</a>
+            </div>
+
+            <!-- Card 2: Complete valid company -->
+            <div class="directory-card" data-company-id="dir-102">
+                <h3 class="company-title">Quantum Data Systems</h3>
+                <span class="company-location">Electronic City Phase 1, Bangalore</span>
+                <span class="company-phone">+91 80 8765 4321</span>
+                <a class="detail-link" href="/directory/companies/dir-102">View Details</a>
+                <a class="website-link" href="https://quantumdata.example.com">Visit Website</a>
+            </div>
+
+            <!-- Card 3: Malformed card (missing company-title / empty title) -->
+            <div class="directory-card" data-company-id="dir-malformed">
+                <span class="company-location">Corrupted data without title</span>
+                <span class="company-phone">+91 80 0000 0000</span>
+                <a class="detail-link" href="/directory/companies/malformed">Broken Card</a>
+            </div>
+
+            <!-- Card 4: Another valid company -->
+            <div class="directory-card" data-company-id="dir-103">
+                <h3 class="company-title">Apex Cloud Services</h3>
+                <span class="company-location">Manyata Tech Park, Nagavara, Bangalore</span>
+                <span class="company-phone">+91 80 9999 0000</span>
+                <a class="detail-link" href="/directory/companies/dir-103">View Details</a>
+                <a class="website-link" href="https://apexcloud.example.com">Visit Website</a>
+            </div>
+        </div>
+
+        <div class="pagination">
+            <span class="current">1</span>
+            <a class="next-page" href="/directory/search?page=2">Next Page</a>
+        </div>
+    </div>
+</body>
+</html>

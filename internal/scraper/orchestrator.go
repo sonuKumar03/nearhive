@@ -76,13 +76,23 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 		if req.Lat == 0 && req.Lng == 0 {
 			req.Lat, req.Lng = getFallbackCityCoordinates(req.Region)
 		}
+	} else if req.Lat != 0 && req.Lng != 0 && (req.Region == "" || strings.HasPrefix(req.Region, "Loc(")) {
+		// Reverse-geocode coordinates to resolve friendly region/city name
+		if o.geocoder != nil {
+			if geo, err := o.geocoder.ReverseGeocode(ctx, req.Lat, req.Lng); err == nil && geo != nil && geo.Address != "" {
+				parts := strings.Split(geo.Address, ",")
+				if len(parts) > 0 {
+					req.Region = strings.TrimSpace(parts[0])
+				}
+			}
+		}
 	}
 
 	// Pre-create ScrapeTask records for each active scraper if JobID is provided
 	taskMap := make(map[string]*model.ScrapeTask)
 	if req.JobID != uuid.Nil && o.store != nil {
 		for _, s := range o.scrapers {
-			if !s.Supports(req.Region) {
+			if !s.Supports(req) {
 				continue
 			}
 			t := &model.ScrapeTask{
@@ -106,7 +116,7 @@ func (o *Orchestrator) ScrapeRegion(ctx context.Context, req ScrapeRequest) ([]m
 	)
 
 	for _, s := range o.scrapers {
-		if !s.Supports(req.Region) {
+		if !s.Supports(req) {
 			continue
 		}
 		wg.Add(1)

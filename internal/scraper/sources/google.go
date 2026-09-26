@@ -28,8 +28,8 @@ func (g *GooglePlacesScraper) Name() string {
 	return "google"
 }
 
-func (g *GooglePlacesScraper) Supports(region string) bool {
-	return g.apiKey != ""
+func (g *GooglePlacesScraper) Supports(req scraper.ScrapeRequest) bool {
+	return g.apiKey != "" && (req.Lat != 0 || req.Lng != 0)
 }
 
 type placesResponse struct {

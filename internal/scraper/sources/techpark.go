@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -62,9 +63,39 @@ func (t *TechParkScraper) Name() string {
 	return "techpark"
 }
 
-func (t *TechParkScraper) Supports(region string) bool {
+func haversineDistanceKM(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKM = 6371.0
+	dLat := (lat2 - lat1) * (math.Pi / 180.0)
+	dLon := (lon2 - lon1) * (math.Pi / 180.0)
+	lat1Rad := lat1 * (math.Pi / 180.0)
+	lat2Rad := lat2 * (math.Pi / 180.0)
+
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadiusKM * c
+}
+
+func (t *TechParkScraper) parkMatches(park TechParkConfig, req scraper.ScrapeRequest) bool {
+	if req.Lat != 0 && req.Lng != 0 && park.Lat != 0 && park.Lng != 0 {
+		radiusKM := req.RadiusKM
+		if radiusKM <= 0 {
+			radiusKM = 25
+		}
+		if haversineDistanceKM(req.Lat, req.Lng, park.Lat, park.Lng) <= radiusKM {
+			return true
+		}
+	}
+	if req.Region != "" && strings.EqualFold(park.Region, req.Region) {
+		return true
+	}
+	return false
+}
+
+func (t *TechParkScraper) Supports(req scraper.ScrapeRequest) bool {
 	for _, p := range t.parks {
-		if strings.EqualFold(p.Region, region) {
+		if t.parkMatches(p, req) {
 			return true
 		}
 	}
@@ -75,7 +106,7 @@ func (t *TechParkScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest)
 	var sightings []model.Sighting
 
 	for _, park := range t.parks {
-		if !strings.EqualFold(park.Region, req.Region) {
+		if !t.parkMatches(park, req) {
 			continue
 		}
 

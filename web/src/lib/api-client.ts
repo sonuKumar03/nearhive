@@ -20,12 +20,24 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
   });
 
   if (!res.ok) {
-    let errorData = { message: 'An unexpected error occurred', code: 'INTERNAL_ERROR' };
+    let errorData: Record<string, any> = {};
     try {
       errorData = await res.json();
     } catch {}
-    throw new ApiError(res.status, errorData.code || 'API_ERROR', errorData.message || res.statusText);
+
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('nearhive_token');
+    }
+
+    const errorMessage = errorData.error || errorData.message || res.statusText || 'An unexpected error occurred';
+    const errorCode = errorData.code || 'API_ERROR';
+    throw new ApiError(res.status, errorCode, errorMessage);
   }
 
-  return res.json() as Promise<T>;
+  if (res.status === 204) {
+    return {} as T;
+  }
+
+  const text = await res.text();
+  return (text ? JSON.parse(text) : {}) as T;
 }

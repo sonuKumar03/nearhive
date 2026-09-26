@@ -9,6 +9,27 @@ export interface Company {
   updated_at: string;
 }
 
+export interface Location {
+  id: string;
+  company_id: string;
+  address: string;
+  lat: number;
+  lng: number;
+  confidence: number;
+  label?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyDetailResponse {
+  company: Company;
+  locations: Location[];
+}
+
 export interface CompanySearchResult {
   id: string;
   name: string;

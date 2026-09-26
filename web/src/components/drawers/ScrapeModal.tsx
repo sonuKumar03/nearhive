@@ -1,38 +1,86 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTriggerScraper, useCancelScraper, useScrapeJob } from '@/hooks/useScrapeJobs';
 import { ScrapeTask } from '@/types';
-import { X, Play, StopCircle, RefreshCw, CheckCircle2, AlertCircle, ArrowDownRight } from 'lucide-react';
+import { X, Play, StopCircle, RefreshCw, CheckCircle2, AlertCircle, ArrowDownRight, MapPin, Building } from 'lucide-react';
 
 interface ScrapeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultRegion: string;
+  defaultRegion?: string;
+  currentCenter?: { lat: number; lng: number };
+  currentRadiusKm?: number;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
 }
 
+const CITY_PRESET_OPTIONS = [
+  { name: 'Bangalore', lat: 12.9716, lng: 77.5946, label: 'Bangalore (Electronic City, Whitefield, ORR)' },
+  { name: 'Hyderabad', lat: 17.385, lng: 78.4867, label: 'Hyderabad (HITEC City, Gachibowli)' },
+  { name: 'Pune', lat: 18.5204, lng: 73.8567, label: 'Pune (Hinjawadi, Magarpatta Cybercity)' },
+  { name: 'Chennai', lat: 13.0827, lng: 80.2707, label: 'Chennai (OMR Corridor, Tidel Park)' },
+  { name: 'Gurgaon', lat: 28.4595, lng: 77.0266, label: 'Gurgaon (DLF Cyber City, Udyog Vihar)' },
+  { name: 'Noida', lat: 28.5355, lng: 77.391, label: 'Noida (Sector 62, Expressway IT Hub)' },
+];
+
 export default function ScrapeModal({
   isOpen,
   onClose,
-  defaultRegion,
+  defaultRegion = 'Bangalore',
+  currentCenter,
+  currentRadiusKm = 15,
   activeJobId,
   setActiveJobId,
 }: ScrapeModalProps) {
-  if (!isOpen) return null;
+  const [mode, setMode] = useState<'coordinates' | 'preset'>('coordinates');
+  const [region, setRegion] = useState(defaultRegion);
+  const [radiusKm, setRadiusKm] = useState(currentRadiusKm);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  const [region, setRegion] = useState(defaultRegion || 'Bangalore');
-  const [radiusKm, setRadiusKm] = useState(15);
+  useEffect(() => {
+    if (currentRadiusKm) {
+      setRadiusKm(currentRadiusKm);
+    }
+  }, [currentRadiusKm]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   const triggerMutation = useTriggerScraper();
   const cancelMutation = useCancelScraper();
   const { data: job } = useScrapeJob(activeJobId);
 
+  if (!isOpen) return null;
+
   async function handleStart() {
+    setErrorText(null);
     try {
-      const res = await triggerMutation.mutateAsync({ region, radius_km: radiusKm });
-      setActiveJobId(res.id);
-    } catch (err) {
-      console.error('Trigger error:', err);
+      if (mode === 'coordinates' && currentCenter) {
+        const res = await triggerMutation.mutateAsync({
+          region: `Loc(${currentCenter.lat.toFixed(3)}, ${currentCenter.lng.toFixed(3)})`,
+          lat: currentCenter.lat,
+          lng: currentCenter.lng,
+          radius_km: radiusKm,
+        });
+        setActiveJobId(res.id);
+      } else {
+        const preset = CITY_PRESET_OPTIONS.find((p) => p.name === region);
+        const res = await triggerMutation.mutateAsync({
+          region,
+          lat: preset?.lat,
+          lng: preset?.lng,
+          radius_km: radiusKm,
+        });
+        setActiveJobId(res.id);
+      }
+    } catch (err: any) {
+      setErrorText(err.message || 'Failed to trigger scraper');
     }
   }
 
@@ -40,16 +88,21 @@ export default function ScrapeModal({
     if (!activeJobId) return;
     try {
       await cancelMutation.mutateAsync(activeJobId);
-    } catch (err) {
-      console.error('Cancel error:', err);
+    } catch (err: any) {
+      setErrorText(err.message || 'Failed to cancel scraper');
     }
   }
 
   const isRunning = job?.status === 'running' || job?.status === 'pending';
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Run Scraper Pipeline"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+    >
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🕷️</span>
@@ -63,36 +116,93 @@ export default function ScrapeModal({
           </button>
         </div>
 
+        {/* Mode Selector Tabs */}
+        <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs">
+          <button
+            type="button"
+            onClick={() => setMode('coordinates')}
+            disabled={isRunning}
+            className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+              mode === 'coordinates'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            Current Map Location
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('preset')}
+            disabled={isRunning}
+            className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+              mode === 'preset'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Building className="w-3.5 h-3.5" />
+            Preset Tech Hub
+          </button>
+        </div>
+
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Target Tech Hub</label>
-            <select
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              disabled={isRunning}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-            >
-              <option value="Bangalore">Bangalore (Electronic City, Whitefield, Outer Ring Road)</option>
-              <option value="Hyderabad">Hyderabad (HITEC City, Gachibowli, Financial Dist)</option>
-              <option value="Pune">Pune (Hinjawadi, Magarpatta Cybercity)</option>
-              <option value="Chennai">Chennai (OMR Corridor, Tidel Park, DLF Cybercity)</option>
-              <option value="Gurgaon">Gurgaon (DLF Cyber City, Udyog Vihar)</option>
-              <option value="Noida">Noida (Sector 62, Expressway IT Hub)</option>
-            </select>
-          </div>
+          {mode === 'coordinates' ? (
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1.5 text-xs">
+              <span className="text-slate-400 font-semibold block text-[11px] uppercase tracking-wider">Dynamic Scrape Coordinates</span>
+              {currentCenter ? (
+                <div className="flex items-center justify-between font-mono text-slate-200 pt-1">
+                  <span>Lat: {currentCenter.lat.toFixed(4)}</span>
+                  <span>Lng: {currentCenter.lng.toFixed(4)}</span>
+                </div>
+              ) : (
+                <p className="text-slate-400">Map coordinates not detected. Drag map marker or select preset.</p>
+              )}
+              <p className="text-[10px] text-slate-500 pt-1">
+                Scrapes tech companies centered at your active map location via OSM Overpass and spatial Wikidata SPARQL.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Target Tech Hub</label>
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                disabled={isRunning}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              >
+                {CITY_PRESET_OPTIONS.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Search Radius (km)</label>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
+              <label>Search Radius (km)</label>
+              <span className="text-amber-400 font-mono">{radiusKm} km</span>
+            </div>
             <input
-              type="number"
+              type="range"
               min={5}
               max={30}
+              step={1}
               value={radiusKm}
               onChange={(e) => setRadiusKm(Number(e.target.value))}
               disabled={isRunning}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              className="w-full accent-amber-500 cursor-pointer"
             />
           </div>
+
+          {errorText && (
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{errorText}</span>
+            </div>
+          )}
 
           {job && (
             <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">

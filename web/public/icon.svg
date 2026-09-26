@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E0F2FE" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Hexagon background badge -->
+  <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="#0B0F19" stroke="url(#amberGrad)" stroke-width="2" stroke-linejoin="round" />
+
+  <!-- Bee Wings -->
+  <ellipse cx="11" cy="12" rx="4.5" ry="3" transform="rotate(-30 11 12)" fill="url(#wingGrad)" />
+  <ellipse cx="21" cy="12" rx="4.5" ry="3" transform="rotate(30 21 12)" fill="url(#wingGrad)" />
+
+  <!-- Bee Body (Amber gold) -->
+  <ellipse cx="16" cy="17" rx="5" ry="7" fill="url(#amberGrad)" />
+
+  <!-- Bee Stripes (Dark slate) -->
+  <path d="M 11.5 14 Q 16 15 20.5 14" stroke="#0B0F19" stroke-width="1.8" stroke-linecap="round" fill="none" />
+  <path d="M 11.2 17.5 Q 16 18.5 20.8 17.5" stroke="#0B0F19" stroke-width="1.8" stroke-linecap="round" fill="none" />
+  <path d="M 12.5 21 Q 16 22 19.5 21" stroke="#0B0F19" stroke-width="1.8" stroke-linecap="round" fill="none" />
+
+  <!-- Bee Head -->
+  <circle cx="16" cy="9.5" r="3.2" fill="#0B0F19" stroke="url(#amberGrad)" stroke-width="1" />
+
+  <!-- Antennae -->
+  <path d="M 14.5 7.5 Q 13 4.5 11 5" stroke="#FBBF24" stroke-width="1.2" stroke-linecap="round" fill="none" />
+  <path d="M 17.5 7.5 Q 19 4.5 21 5" stroke="#FBBF24" stroke-width="1.2" stroke-linecap="round" fill="none" />
+
+  <!-- Stinger -->
+  <polygon points="15.2,23.8 16.8,23.8 16,26.5" fill="#FBBF24" />
+</svg>

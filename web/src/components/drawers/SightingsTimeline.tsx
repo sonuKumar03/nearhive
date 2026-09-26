@@ -36,7 +36,7 @@ export default function SightingsTimeline({ sightings }: SightingsTimelineProps)
               {getSourceIcon(s.source)}
               <span className="uppercase tracking-wider">{s.source}</span>
             </span>
-            <span className="text-[10px] font-mono text-slate-500">
+            <span className="text-[10px] font-mono text-slate-400">
               {s.scraped_at ? new Date(s.scraped_at).toLocaleDateString() : 'Recent'}
             </span>
           </div>
@@ -44,7 +44,7 @@ export default function SightingsTimeline({ sightings }: SightingsTimelineProps)
           <p className="text-[11px] text-slate-300">{s.raw_address || s.company_name}</p>
 
           <div className="flex items-center justify-between pt-1 border-t border-slate-800/50 text-[10px]">
-            <span className="font-mono text-slate-500">{s.lat?.toFixed(4)}, {s.lng?.toFixed(4)}</span>
+            <span className="font-mono text-slate-400">{s.lat?.toFixed(4)}, {s.lng?.toFixed(4)}</span>
             {s.source_url && (
               <a
                 href={s.source_url}

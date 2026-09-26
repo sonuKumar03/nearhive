@@ -12,7 +12,7 @@ import { useScrapeJob } from '@/hooks/useScrapeJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
-import { Play, Layers, RefreshCw, LocateFixed, Loader2 } from 'lucide-react';
+import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown } from 'lucide-react';
 
 const CITY_PRESETS = [
   { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
@@ -32,8 +32,10 @@ export default function HomePage() {
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
+  const [geoNotice, setGeoNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
-  // Debounce search input by 300ms to avoid flooding PostGIS
+  // Debounce search input by 300ms to avoid flooding backend
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -45,11 +47,18 @@ export default function HomePage() {
   const { getCurrentLocation, loading: geoLoading, error: geoError } = useGeolocation();
 
   async function handleLocateMe() {
+    setGeoNotice(null);
     try {
       const coords = await getCurrentLocation();
       setCenter(coords);
-    } catch (err) {
-      console.warn('Geolocation failed:', err);
+      setGeoNotice({ type: 'success', message: 'Centered map on your current location' });
+      setTimeout(() => setGeoNotice(null), 4000);
+    } catch (err: any) {
+      setGeoNotice({
+        type: 'error',
+        message: err?.message || 'Location access denied. Please allow location permissions in your browser.',
+      });
+      setTimeout(() => setGeoNotice(null), 6000);
     }
   }
 
@@ -82,11 +91,38 @@ export default function HomePage() {
   const isJobRunning = activeJob?.status === 'running' || activeJob?.status === 'pending';
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-950">
+    <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
+      {/* Geolocation Feedback Toast */}
+      {geoNotice && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl border text-xs flex items-center gap-2.5 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 ${
+            geoNotice.type === 'error'
+              ? 'bg-rose-950/95 border-rose-500/50 text-rose-200'
+              : 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+          }`}
+        >
+          {geoNotice.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <LocateFixed className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span className="font-medium">{geoNotice.message}</span>
+          <button
+            onClick={() => setGeoNotice(null)}
+            aria-label="Dismiss notification"
+            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors ml-1 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
-      <header className="h-14 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-20">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-lg shadow-lg shadow-amber-500/20">
+      <header className="h-14 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-3 md:px-4 flex items-center justify-between shrink-0 z-20">
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-lg shadow-lg shadow-amber-500/20 shrink-0">
             🐝
           </div>
           <div>
@@ -94,13 +130,13 @@ export default function HomePage() {
               <span className="font-bold text-base tracking-tight bg-gradient-to-r from-amber-200 to-amber-500 bg-clip-text text-transparent">
                 NearHive
               </span>
-              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                POSTGIS
+              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                SPATIAL
               </span>
             </div>
           </div>
 
-          <div className="h-4 w-px bg-slate-800 hidden md:block mx-1" />
+          <div className="h-4 w-px bg-slate-800 hidden sm:block mx-0.5 md:mx-1" />
 
           {/* Current Location Button */}
           <button
@@ -108,22 +144,46 @@ export default function HomePage() {
             disabled={geoLoading}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all cursor-pointer font-medium disabled:opacity-50"
             title={geoError || 'Locate around current browser location'}
+            aria-label="Locate around current browser location"
           >
             {geoLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <LocateFixed className="w-3.5 h-3.5 text-amber-400" />
             )}
-            <span>Locate Me</span>
+            <span className="hidden sm:inline">Locate Me</span>
           </button>
 
-          {/* City Presets */}
+          {/* City Presets - Dropdown on small screens, Pills on large */}
+          <div className="flex lg:hidden items-center">
+            <select
+              aria-label="Select target tech city"
+              value={CITY_PRESETS.find((c) => c.lat === center.lat && c.lng === center.lng)?.name || ''}
+              onChange={(e) => {
+                const found = CITY_PRESETS.find((c) => c.name === e.target.value);
+                if (found) setCenter({ lat: found.lat, lng: found.lng });
+              }}
+              className="bg-slate-800/90 text-slate-300 border border-slate-700/60 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
+            >
+              <option value="" disabled>City Hubs</option>
+              {CITY_PRESETS.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="hidden lg:flex items-center gap-1">
             {CITY_PRESETS.map((c) => (
               <button
                 key={c.name}
                 onClick={() => setCenter({ lat: c.lat, lng: c.lng })}
-                className="px-2 py-1 text-xs rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/40 transition-colors cursor-pointer"
+                className={`px-2 py-1 text-xs rounded-lg transition-colors cursor-pointer border ${
+                  center.lat === c.lat && center.lng === c.lng
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold'
+                    : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700/40'
+                }`}
               >
                 {c.name}
               </button>
@@ -132,7 +192,7 @@ export default function HomePage() {
         </div>
 
         {/* Header Right Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Active Background Scraper Header Pill */}
           {activeJob && isJobRunning && (
             <button
@@ -148,43 +208,52 @@ export default function HomePage() {
             </button>
           )}
 
-          {/* Radius Slider */}
-          <div className="flex items-center gap-2 bg-slate-950/80 px-2.5 py-1 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 font-medium">Radius:</span>
+          {/* Radius Slider with accessible label */}
+          <div className="flex items-center gap-1.5 md:gap-2 bg-slate-950/80 px-2 py-1 md:px-2.5 rounded-xl border border-slate-800">
+            <label htmlFor="header-radius-slider" className="text-xs text-slate-400 font-medium hidden sm:inline">
+              Radius:
+            </label>
             <input
+              id="header-radius-slider"
+              aria-label="Search radius in kilometers"
               type="range"
               min={1}
               max={30}
               value={radiusKm}
               onChange={(e) => setRadiusKm(Number(e.target.value))}
-              className="w-20 md:w-28 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+              className="w-16 sm:w-20 md:w-28 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
             />
-            <span className="text-xs font-mono font-bold text-amber-400 min-w-[36px]">{radiusKm} km</span>
+            <span className="text-xs font-mono font-bold text-amber-400 min-w-[32px] md:min-w-[36px]">{radiusKm} km</span>
           </div>
 
           <button
             onClick={() => setIsScrapeOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all cursor-pointer shrink-0"
           >
-            <Play className="w-3.5 h-3.5" />
-            <span>Scrape Tech Hub</span>
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span className="hidden sm:inline">Scrape Tech Hub</span>
+            <span className="sm:hidden">Scrape</span>
           </button>
         </div>
       </header>
 
-      {/* Main Map + Sidebar Canvas */}
-      <div className="flex-1 flex relative overflow-hidden">
+      {/* Main Landmark: Canvas with Map + Sidebar */}
+      <main className="flex-1 flex relative overflow-hidden">
+        {/* Sidebar - responsive visibility */}
         <Sidebar
+          className={mobileTab === 'list' ? 'flex' : 'hidden md:flex'}
           companies={companies}
           isLoading={loadingCompanies}
           totalCount={totalCount}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onSelectCompany={setSelectedCompany}
+          onSelectCompany={(c) => {
+            setSelectedCompany(c);
+          }}
         />
 
-        {/* Map Canvas */}
-        <div className="flex-1 h-full relative">
+        {/* Map Canvas - responsive visibility */}
+        <div className={`flex-1 h-full relative ${mobileTab === 'map' ? 'block' : 'hidden md:block'}`}>
           {/* Floating Cluster Toggle */}
           <div className="absolute top-4 right-4 z-20">
             <button
@@ -196,7 +265,7 @@ export default function HomePage() {
               }`}
             >
               <Layers className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isClusterMode ? 'Show Pins View' : 'Cluster View (K-Means)'}</span>
+              <span>{isClusterMode ? 'Pins View' : 'Cluster View'}</span>
             </button>
           </div>
 
@@ -213,6 +282,34 @@ export default function HomePage() {
               setIsClusterMode(false);
             }}
           />
+        </div>
+
+        {/* Mobile Tab Switcher (Floating Bottom Segmented Control) */}
+        <div className="md:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-full p-1 shadow-2xl">
+          <button
+            type="button"
+            onClick={() => setMobileTab('map')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              mobileTab === 'map'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <MapIcon className="w-3.5 h-3.5" />
+            <span>Map</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab('list')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              mobileTab === 'list'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <List className="w-3.5 h-3.5" />
+            <span>List ({totalCount})</span>
+          </button>
         </div>
 
         {/* Company Detail Drawer */}
@@ -239,7 +336,7 @@ export default function HomePage() {
             onDismiss={() => setActiveJobId(null)}
           />
         )}
-      </div>
+      </main>
     </div>
   );
 }

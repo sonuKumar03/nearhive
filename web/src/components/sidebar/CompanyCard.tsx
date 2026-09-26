@@ -19,8 +19,17 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-850/80 border border-slate-800/80 hover:border-amber-500/30 transition-all cursor-pointer group space-y-2"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label={`View details for ${company.name}, located ${distanceKm} kilometers away`}
+      className="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-850/80 focus:bg-slate-800/80 focus:outline-none focus:ring-1 focus:ring-amber-500/50 border border-slate-800/80 hover:border-amber-500/30 transition-all cursor-pointer group space-y-2"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -35,8 +44,8 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
               </span>
             )}
             {company.employee_count && (
-              <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                <Users className="w-3 h-3 text-slate-500" />
+              <span className="text-[10px] text-slate-300 font-mono flex items-center gap-1">
+                <Users className="w-3 h-3 text-slate-400" />
                 {company.employee_count}
               </span>
             )}
@@ -47,13 +56,13 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
         </span>
       </div>
 
-      <p className="text-[11px] text-slate-400 leading-relaxed flex items-center gap-1.5">
-        <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
+      <p className="text-[11px] text-slate-300 leading-relaxed flex items-center gap-1.5">
+        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
         <span className="truncate">{company.address || 'Address registered'}</span>
       </p>
 
       <div className="flex items-center justify-between pt-1 border-t border-slate-800/50 text-[11px]">
-        <span className="text-slate-500 font-mono text-[10px]">{distanceKm} km away</span>
+        <span className="text-slate-400 font-mono text-[10px]">{distanceKm} km away</span>
         <span className="text-amber-400 group-hover:text-amber-300 font-medium text-[11px] flex items-center gap-1">
           Details ›
         </span>

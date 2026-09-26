@@ -108,10 +108,14 @@ export default function ScrapeModal({
             <span className="text-2xl">🕷️</span>
             <div>
               <h3 className="font-bold text-slate-100 text-base">Run Scraper Pipeline</h3>
-              <p className="text-xs text-slate-400">Multi-source: OSM Overpass + Wikidata SPARQL + Tech Parks</p>
+              <p className="text-xs text-slate-400">Multi-source: OpenStreetMap + Wikidata + Tech Parks</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <button
+            onClick={onClose}
+            aria-label="Close scrape dialog"
+            className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -158,14 +162,15 @@ export default function ScrapeModal({
               ) : (
                 <p className="text-slate-400">Map coordinates not detected. Drag map marker or select preset.</p>
               )}
-              <p className="text-[10px] text-slate-500 pt-1">
-                Scrapes tech companies centered at your active map location via OSM Overpass and spatial Wikidata SPARQL.
+              <p className="text-[10px] text-slate-400 pt-1">
+                Discovers tech offices centered around your active map location across open registries and spatial datasets.
               </p>
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Target Tech Hub</label>
+              <label htmlFor="target-tech-hub-select" className="block text-xs font-semibold text-slate-300 mb-1">Target Tech Hub</label>
               <select
+                id="target-tech-hub-select"
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
                 disabled={isRunning}
@@ -182,10 +187,12 @@ export default function ScrapeModal({
 
           <div>
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
-              <label>Search Radius (km)</label>
+              <label htmlFor="scrape-radius-slider">Search Radius (km)</label>
               <span className="text-amber-400 font-mono">{radiusKm} km</span>
             </div>
             <input
+              id="scrape-radius-slider"
+              aria-label="Search radius in kilometers"
               type="range"
               min={5}
               max={30}

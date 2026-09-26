@@ -68,6 +68,7 @@ func main() {
 	worker := crawler.NewWorkerDaemon(q, orchestrator, crawler.WorkerConfig{
 		PollInterval: 2 * time.Second,
 		JobTimeout:   15 * time.Minute,
+		Concurrency:  cfg.CrawlerConcurrency,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

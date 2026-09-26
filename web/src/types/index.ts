@@ -86,6 +86,10 @@ export interface ScrapeJob {
   source: string;
   status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
   region?: string;
+  lat?: number;
+  lng?: number;
+  radius_km?: number;
+  worker_id?: string;
   sightings: number;
   error?: string;
   started_at?: string;

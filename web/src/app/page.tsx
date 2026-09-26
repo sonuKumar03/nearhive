@@ -8,7 +8,7 @@ import ScrapeModal from '@/components/drawers/ScrapeModal';
 import BackgroundScrapeWidget from '@/components/scrapers/BackgroundScrapeWidget';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useClusters } from '@/hooks/useClusters';
-import { useScrapeJob } from '@/hooks/useScrapeJobs';
+import { useScrapeJobs } from '@/hooks/useScrapeJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
@@ -31,7 +31,7 @@ export default function HomePage() {
   const [isClusterMode, setIsClusterMode] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
   const [geoNotice, setGeoNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
@@ -65,8 +65,11 @@ export default function HomePage() {
   // Initialize guest session
   useAuth();
 
-  // Track active background scraping job
-  const { data: activeJob } = useScrapeJob(activeJobId);
+  // Track active background scraping jobs
+  const { data: jobsData } = useScrapeJobs();
+  const allJobs = jobsData?.jobs || [];
+  const runningJobs = allJobs.filter((j) => j.status === 'running' || j.status === 'pending');
+  const totalRunningSightings = runningJobs.reduce((acc, j) => acc + (j.sightings || 0), 0);
 
   const { data: searchData, isLoading: loadingCompanies } = useCompanies({
     lat: center.lat,
@@ -88,7 +91,7 @@ export default function HomePage() {
   const companies = searchData?.companies || [];
   const clusters = clusterData?.clusters || [];
   const totalCount = searchData?.meta?.total ?? companies.length;
-  const isJobRunning = activeJob?.status === 'running' || activeJob?.status === 'pending';
+  const isJobRunning = runningJobs.length > 0;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
@@ -194,16 +197,20 @@ export default function HomePage() {
         {/* Header Right Controls */}
         <div className="flex items-center gap-2 md:gap-3">
           {/* Active Background Scraper Header Pill */}
-          {activeJob && isJobRunning && (
+          {runningJobs.length > 0 && (
             <button
               onClick={() => setIsScrapeOpen(true)}
               className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/20 transition-all cursor-pointer animate-pulse"
               title="Click to view full scraper tasks"
             >
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span className="font-semibold">Crawling {activeJob.region}...</span>
+              <span className="font-semibold">
+                {runningJobs.length === 1
+                  ? `Crawling ${runningJobs[0].region}...`
+                  : `${runningJobs.length} Scrapers Active`}
+              </span>
               <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold">
-                {activeJob.sightings} sightings
+                {totalRunningSightings} sightings
               </span>
             </button>
           )}
@@ -324,16 +331,21 @@ export default function HomePage() {
           defaultRegion="Bangalore"
           currentCenter={center}
           currentRadiusKm={radiusKm}
-          activeJobId={activeJobId}
-          setActiveJobId={setActiveJobId}
+          activeJobIds={activeJobIds}
+          onTriggerJob={(id) => {
+            setActiveJobIds((prev) => [id, ...prev.filter((x) => x !== id)]);
+          }}
         />
 
         {/* Floating Background Scraper Widget */}
         {!isScrapeOpen && (
           <BackgroundScrapeWidget
-            jobId={activeJobId}
+            activeJobIds={activeJobIds}
             onOpenDetails={() => setIsScrapeOpen(true)}
-            onDismiss={() => setActiveJobId(null)}
+            onDismissJob={(id) => {
+              setActiveJobIds((prev) => prev.filter((x) => x !== id));
+            }}
+            onDismissAll={() => setActiveJobIds([])}
           />
         )}
       </main>

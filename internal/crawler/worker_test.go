@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,3 +74,70 @@ func TestWorkerDaemon_ProcessJob(t *testing.T) {
 	assert.True(t, mq.completed)
 	assert.Equal(t, "done", mq.completeStatus)
 }
+
+func TestWorkerDaemon_ConcurrentExecution(t *testing.T) {
+	s := store.NewMockStore()
+	orch := scraper.NewOrchestrator(s, nil, nil, 2)
+
+	job1 := &model.ScrapeJob{ID: uuid.New(), Status: "pending"}
+	job2 := &model.ScrapeJob{ID: uuid.New(), Status: "pending"}
+	job3 := &model.ScrapeJob{ID: uuid.New(), Status: "pending"}
+
+	jobs := []*model.ScrapeJob{job1, job2, job3}
+	completedJobs := make(map[uuid.UUID]bool)
+	var mu sync.Mutex
+
+	mockQ := &concurrentMockQueue{
+		jobs: jobs,
+		onComplete: func(id uuid.UUID) {
+			mu.Lock()
+			completedJobs[id] = true
+			mu.Unlock()
+		},
+	}
+
+	daemon := NewWorkerDaemon(mockQ, orch, WorkerConfig{
+		WorkerID:     "test-worker-concurrent",
+		PollInterval: 20 * time.Millisecond,
+		JobTimeout:   5 * time.Second,
+		Concurrency:  3,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	daemon.Start(ctx)
+	time.Sleep(300 * time.Millisecond)
+	daemon.Stop()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 3, len(completedJobs))
+}
+
+type concurrentMockQueue struct {
+	jobs       []*model.ScrapeJob
+	onComplete func(uuid.UUID)
+	mu         sync.Mutex
+}
+
+func (m *concurrentMockQueue) Enqueue(_ context.Context, _ *model.ScrapeJob) error { return nil }
+func (m *concurrentMockQueue) Dequeue(_ context.Context, _ string) (*model.ScrapeJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.jobs) == 0 {
+		return nil, nil
+	}
+	job := m.jobs[0]
+	m.jobs = m.jobs[1:]
+	return job, nil
+}
+func (m *concurrentMockQueue) Heartbeat(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (m *concurrentMockQueue) Complete(_ context.Context, id uuid.UUID, _ int, _ *string) error {
+	if m.onComplete != nil {
+		m.onComplete(id)
+	}
+	return nil
+}
+func (m *concurrentMockQueue) NotifyCancel(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *concurrentMockQueue) StartCancelListener(_ context.Context, _ func(jobID uuid.UUID)) error { return nil }

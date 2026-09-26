@@ -16,6 +16,7 @@ type Config struct {
 	GoogleGeoAPIKey   string
 	GooglePlacesKey   string
 	MaxScraperWorkers int
+	CrawlerConcurrency int
 	ScrapeSchedule    string
 	ScrapeRegions     []string
 	RateLimitAuth     int
@@ -52,6 +53,7 @@ func Load() (*Config, error) {
 		GoogleGeoAPIKey:   os.Getenv("GOOGLE_GEO_API_KEY"),
 		GooglePlacesKey:   os.Getenv("GOOGLE_PLACES_KEY"),
 		MaxScraperWorkers: getEnvInt("MAX_SCRAPER_WORKERS", 5),
+		CrawlerConcurrency: getEnvInt("CRAWLER_CONCURRENCY", 3),
 		ScrapeSchedule:    getEnv("SCRAPE_SCHEDULE", "0 3 * * *"),
 		ScrapeRegions:     splitAndTrim(getEnv("SCRAPE_REGIONS", "Bangalore,Pune,Hyderabad")),
 		RateLimitAuth:     getEnvInt("RATE_LIMIT_AUTH", 10),

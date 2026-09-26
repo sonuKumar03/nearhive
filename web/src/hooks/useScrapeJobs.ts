@@ -27,6 +27,18 @@ export function useScrapeJob(jobId: string | null) {
   return query;
 }
 
+export function useScrapeJobs() {
+  return useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => fetchApi<{ jobs: ScrapeJob[] }>('/api/v1/jobs'),
+    refetchInterval: (q) => {
+      const jobs = q.state.data?.jobs || [];
+      const hasActive = jobs.some((j) => j.status === 'running' || j.status === 'pending');
+      return hasActive ? 2500 : 10000;
+    },
+  });
+}
+
 export function useTriggerScraper() {
   const queryClient = useQueryClient();
 
@@ -38,6 +50,7 @@ export function useTriggerScraper() {
       }),
     onSuccess: (job) => {
       queryClient.setQueryData(['job', job.id], job);
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
 }
@@ -52,6 +65,7 @@ export function useCancelScraper() {
       }),
     onSuccess: (res, jobId) => {
       queryClient.setQueryData(['job', jobId], res.job);
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
     },

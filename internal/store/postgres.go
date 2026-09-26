@@ -397,7 +397,17 @@ func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]mode
 	var jobs []model.ScrapeJob
 	query := `SELECT id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at FROM scrape_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	err := s.db.SelectContext(ctx, &jobs, query, limit, offset)
-	return jobs, err
+	if err != nil {
+		return nil, err
+	}
+	for i := range jobs {
+		tasks, _ := s.GetTasksByJobID(ctx, jobs[i].ID)
+		if tasks == nil {
+			tasks = []model.ScrapeTask{}
+		}
+		jobs[i].Tasks = tasks
+	}
+	return jobs, nil
 }
 
 func (s *PostgresStore) CreateTask(ctx context.Context, task *model.ScrapeTask) error {

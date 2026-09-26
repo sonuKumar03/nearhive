@@ -7,9 +7,10 @@ import { X, Building2, Globe, ShieldCheck, MapPin } from 'lucide-react';
 interface DrawerProps {
   company: CompanySearchResult | null;
   onClose: () => void;
+  onFocusOnMap?: () => void;
 }
 
-export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
+export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: DrawerProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -43,13 +44,25 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
             <span className="text-[10px] text-slate-400 font-mono">ID: {company.id.slice(0, 8)}...</span>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close company details"
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          {onFocusOnMap && (
+            <button
+              onClick={onFocusOnMap}
+              className="px-2 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-400 transition-colors flex items-center gap-1 cursor-pointer border border-slate-700/60"
+              title="Show on map"
+            >
+              <MapPin className="w-3.5 h-3.5 text-amber-400" />
+              <span>Map</span>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close company details"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
@@ -64,7 +77,7 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
             <span className="text-xl font-mono font-bold text-emerald-400">{conf}%</span>
           </div>
           <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">
-            Spatial Verified
+            Verified Office
           </span>
         </div>
 
@@ -132,9 +145,9 @@ export default function CompanyDetailDrawer({ company, onClose }: DrawerProps) {
 
         {/* Multi-Source Sightings */}
         <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-slate-300">Verification Sightings Audit</h4>
+          <h4 className="text-xs font-semibold text-slate-300">Verified Data Sources</h4>
           {loadingSightings ? (
-            <div className="py-6 text-center text-xs text-slate-400">Loading audit trail...</div>
+            <div className="py-4 text-center text-xs text-slate-400">Loading verified sources...</div>
           ) : (
             <SightingsTimeline sightings={sightingsData?.sightings || []} />
           )}

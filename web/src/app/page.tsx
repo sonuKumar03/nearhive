@@ -34,6 +34,7 @@ export default function HomePage() {
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
   const [geoNotice, setGeoNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+  const [isUserLocationActive, setIsUserLocationActive] = useState(false);
 
   // Debounce search input by 300ms to avoid flooding backend
   useEffect(() => {
@@ -51,9 +52,11 @@ export default function HomePage() {
     try {
       const coords = await getCurrentLocation();
       setCenter(coords);
+      setIsUserLocationActive(true);
       setGeoNotice({ type: 'success', message: 'Centered map on your current location' });
       setTimeout(() => setGeoNotice(null), 4000);
     } catch (err: any) {
+      setIsUserLocationActive(false);
       setGeoNotice({
         type: 'error',
         message: err?.message || 'Location access denied. Please allow location permissions in your browser.',
@@ -125,34 +128,45 @@ export default function HomePage() {
       {/* Top Header */}
       <header className="h-14 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-3 md:px-4 flex items-center justify-between shrink-0 z-20">
         <div className="flex items-center gap-2 md:gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-lg shadow-lg shadow-amber-500/20 shrink-0">
-            🐝
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-base tracking-tight bg-gradient-to-r from-amber-200 to-amber-500 bg-clip-text text-transparent">
-                NearHive
-              </span>
-              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
-                SPATIAL
-              </span>
+          {/* Modern Geometric Logo & Typography */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-slate-800/90 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/10 shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-4 h-4 text-amber-400"
+              >
+                <polygon points="12 2 20.66 7 20.66 17 12 22 3.34 17 3.34 7 12 2" fill="rgba(245, 158, 11, 0.15)" stroke="currentColor" />
+                <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+              </svg>
             </div>
+            <span className="font-bold text-base tracking-tight text-slate-100 flex items-center">
+              Near<span className="text-amber-400">Hive</span>
+            </span>
           </div>
 
           <div className="h-4 w-px bg-slate-800 hidden sm:block mx-0.5 md:mx-1" />
 
-          {/* Current Location Button */}
+          {/* Current Location Button - only active when geolocation is active */}
           <button
             onClick={handleLocateMe}
             disabled={geoLoading}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all cursor-pointer font-medium disabled:opacity-50"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer border font-medium disabled:opacity-50 ${
+              isUserLocationActive
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold'
+                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700/40'
+            }`}
             title={geoError || 'Locate around current browser location'}
             aria-label="Locate Me around current browser location"
           >
             {geoLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <LocateFixed className="w-3.5 h-3.5 text-amber-400" />
+              <LocateFixed className={`w-3.5 h-3.5 ${isUserLocationActive ? 'text-amber-400' : 'text-slate-400'}`} />
             )}
             <span className="hidden sm:inline">Locate Me</span>
           </button>
@@ -161,14 +175,17 @@ export default function HomePage() {
           <div className="flex lg:hidden items-center">
             <select
               aria-label="Select target tech city"
-              value={CITY_PRESETS.find((c) => c.lat === center.lat && c.lng === center.lng)?.name || ''}
+              value={!isUserLocationActive ? CITY_PRESETS.find((c) => c.lat === center.lat && c.lng === center.lng)?.name || '' : ''}
               onChange={(e) => {
                 const found = CITY_PRESETS.find((c) => c.name === e.target.value);
-                if (found) setCenter({ lat: found.lat, lng: found.lng });
+                if (found) {
+                  setIsUserLocationActive(false);
+                  setCenter({ lat: found.lat, lng: found.lng });
+                }
               }}
               className="bg-slate-800/90 text-slate-300 border border-slate-700/60 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
             >
-              <option value="" disabled>City Hubs</option>
+              <option value="" disabled>{isUserLocationActive ? 'Current Location' : 'City Hubs'}</option>
               {CITY_PRESETS.map((c) => (
                 <option key={c.name} value={c.name}>
                   {c.name}
@@ -181,9 +198,12 @@ export default function HomePage() {
             {CITY_PRESETS.map((c) => (
               <button
                 key={c.name}
-                onClick={() => setCenter({ lat: c.lat, lng: c.lng })}
+                onClick={() => {
+                  setIsUserLocationActive(false);
+                  setCenter({ lat: c.lat, lng: c.lng });
+                }}
                 className={`px-2 py-1 text-xs rounded-lg transition-colors cursor-pointer border ${
-                  center.lat === c.lat && center.lng === c.lng
+                  !isUserLocationActive && center.lat === c.lat && center.lng === c.lng
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold'
                     : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700/40'
                 }`}
@@ -256,6 +276,7 @@ export default function HomePage() {
           onSearchChange={setSearchQuery}
           onSelectCompany={(c) => {
             setSelectedCompany(c);
+            if (isClusterMode) setIsClusterMode(false);
           }}
         />
 
@@ -282,9 +303,14 @@ export default function HomePage() {
             companies={companies}
             clusters={clusters}
             isClusterMode={isClusterMode}
-            onCenterChange={(lat, lng) => setCenter({ lat, lng })}
+            selectedCompany={selectedCompany}
+            onCenterChange={(lat, lng) => {
+              setIsUserLocationActive(false);
+              setCenter({ lat, lng });
+            }}
             onSelectCompany={setSelectedCompany}
             onClusterZoom={(lat, lng) => {
+              setIsUserLocationActive(false);
               setCenter({ lat, lng });
               setIsClusterMode(false);
             }}
@@ -321,7 +347,11 @@ export default function HomePage() {
 
         {/* Company Detail Drawer */}
         {selectedCompany && (
-          <CompanyDetailDrawer company={selectedCompany} onClose={() => setSelectedCompany(null)} />
+          <CompanyDetailDrawer
+            company={selectedCompany}
+            onClose={() => setSelectedCompany(null)}
+            onFocusOnMap={() => setMobileTab('map')}
+          />
         )}
 
         {/* Scrape Modal */}

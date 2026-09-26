@@ -11,9 +11,19 @@ interface ClientMapProps {
   companies: CompanySearchResult[];
   clusters: SpatialCluster[];
   isClusterMode: boolean;
+  selectedCompany?: CompanySearchResult | null;
   onCenterChange: (lat: number, lng: number) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
   onClusterZoom: (lat: number, lng: number) => void;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 export default function ClientMap({
@@ -22,6 +32,7 @@ export default function ClientMap({
   companies,
   clusters,
   isClusterMode,
+  selectedCompany,
   onCenterChange,
   onSelectCompany,
   onClusterZoom,
@@ -31,6 +42,7 @@ export default function ClientMap({
   const epicenterRef = useRef<L.Marker | null>(null);
   const circleRef = useRef<L.Circle | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const markerMapRef = useRef<Map<string, L.Marker>>(new Map());
 
   // Store latest callbacks in refs to avoid stale closures
   const onCenterChangeRef = useRef(onCenterChange);
@@ -129,6 +141,7 @@ export default function ClientMap({
   useEffect(() => {
     if (!markerLayerRef.current || !mapRef.current) return;
     markerLayerRef.current.clearLayers();
+    markerMapRef.current.clear();
 
     if (isClusterMode) {
       clusters.forEach((c) => {
@@ -157,29 +170,82 @@ export default function ClientMap({
     } else {
       companies.forEach((comp) => {
         if (!comp.lat || !comp.lng) return;
+        const isSelected =
+          selectedCompany?.id === comp.id && selectedCompany?.location_id === comp.location_id;
         const conf = Math.round(comp.confidence * 100);
         const markerColor = conf >= 80 ? '#10b981' : conf >= 60 ? '#f59e0b' : '#64748b';
 
         const customIcon = L.divIcon({
-          className: 'company-pin',
+          className: 'company-pin-wrapper',
           html: `
-            <div role="button" aria-label="${comp.name}, ${conf}% verified, click to view details" class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60 transition-transform hover:scale-110 cursor-pointer" style="background-color: ${markerColor}">
-              <span class="text-xs">🏢</span>
+            <div role="button" aria-label="${escapeHtml(comp.name)}, ${conf}% verified" class="relative flex items-center justify-center cursor-pointer transition-all ${
+              isSelected ? 'scale-125 z-40' : 'hover:scale-110 z-10'
+            }">
+              ${isSelected ? '<div class="absolute -inset-2.5 rounded-2xl bg-amber-400/50 animate-ping pointer-events-none"></div>' : ''}
+              <div class="w-7 h-7 rounded-xl shadow-lg border-2 ${
+                isSelected
+                  ? 'border-amber-300 ring-2 ring-amber-400/60 shadow-amber-500/50'
+                  : 'border-slate-950/80 shadow-black/40'
+              } flex items-center justify-center text-xs text-white" style="background-color: ${markerColor}">
+                <span>🏢</span>
+              </div>
             </div>
           `,
           iconSize: [28, 28],
+          iconAnchor: [14, 14],
+          popupAnchor: [0, -16],
         });
 
         const marker = L.marker([comp.lat, comp.lng], {
           icon: customIcon,
           title: `${comp.name} (${conf}% verified)`,
           alt: `${comp.name} office pin`,
+          zIndexOffset: isSelected ? 1000 : 0,
         });
+
+        marker.bindPopup(`
+          <div style="font-family: inherit; min-width: 170px; padding: 2px;">
+            <div style="font-weight: 700; font-size: 13px; color: #f8fafc; line-height: 1.3;">${escapeHtml(comp.name)}</div>
+            ${comp.industry ? `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">${escapeHtml(comp.industry)}</div>` : ''}
+            <div style="font-size: 11px; color: #cbd5e1; margin-top: 5px; line-height: 1.3;">${escapeHtml(comp.address || 'Office location')}</div>
+            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; font-size: 10px;">
+              <span style="font-weight: 700; color: #34d399;">✓ ${conf}% Verified</span>
+              <span style="color: #94a3b8; font-family: monospace;">${((comp.distance_meters || 0) / 1000).toFixed(1)} km</span>
+            </div>
+          </div>
+        `, {
+          closeButton: true,
+          className: 'company-leaflet-popup',
+        });
+
         marker.on('click', () => onSelectCompanyRef.current(comp));
+        const markerKey = `${comp.id}-${comp.location_id}`;
+        markerMapRef.current.set(markerKey, marker);
         markerLayerRef.current?.addLayer(marker);
       });
     }
-  }, [companies, clusters, isClusterMode]);
+  }, [companies, clusters, isClusterMode, selectedCompany?.id, selectedCompany?.location_id]);
+
+  // When a company is selected (e.g. from the sidebar), fly to it and open its popup
+  useEffect(() => {
+    if (!selectedCompany || !mapRef.current || isClusterMode) return;
+    const markerKey = `${selectedCompany.id}-${selectedCompany.location_id}`;
+    const marker = markerMapRef.current.get(markerKey);
+
+    if (selectedCompany.lat && selectedCompany.lng) {
+      mapRef.current.flyTo(
+        [selectedCompany.lat, selectedCompany.lng],
+        Math.max(mapRef.current.getZoom(), 15),
+        { animate: true, duration: 0.8 }
+      );
+    }
+
+    if (marker) {
+      setTimeout(() => {
+        marker.openPopup();
+      }, 400);
+    }
+  }, [selectedCompany, isClusterMode]);
 
   return <div ref={mapContainerRef} className="w-full h-full relative z-0" />;
 }

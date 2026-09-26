@@ -19,6 +19,7 @@ from nearhive_discovery.contracts import (
 from nearhive_discovery.http import (
     DEFAULT_USER_AGENT,
     SSRFError,
+    safe_fetch_text,
     validate_public_url,
 )
 from nearhive_discovery.sources.base import BaseSourceAdapter
@@ -154,25 +155,11 @@ class ConfiguredDirectorySource(BaseSourceAdapter):
         validate_public_url(url, resolve_dns=self.resolve_dns)
         if self.fetcher is not None:
             return await self.fetcher(url)
-
-        if self._http_client is not None:
-            resp = await self._http_client.get(
-                url,
-                headers={"User-Agent": DEFAULT_USER_AGENT},
-                follow_redirects=True,
-                timeout=15.0,
-            )
-            resp.raise_for_status()
-            return resp.text
-
-        async with httpx.AsyncClient(
-            timeout=15.0,
-            follow_redirects=True,
-            headers={"User-Agent": DEFAULT_USER_AGENT},
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.text
+        return await safe_fetch_text(
+            url,
+            client=self._http_client,
+            resolve_dns=self.resolve_dns,
+        )
 
     async def run(self, job: DiscoveryJob) -> AsyncIterator[EvidenceBatch]:
         """Crawls the directory, extracts companies, and streams EvidenceBatches."""
@@ -275,7 +262,7 @@ class ConfiguredDirectorySource(BaseSourceAdapter):
                                 det_exc,
                             )
 
-                    domain = _extract_domain(website) or _extract_domain(evidence_url)
+                    domain = _extract_domain(website) if website else None
 
                     # Deterministic content hash
                     hash_input = f"{name.lower()}|{domain or ''}|{address.lower()}|{lat or ''}|{lng or ''}"

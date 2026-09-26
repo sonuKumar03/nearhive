@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+import httpx
 import pytest
 
 from nearhive_discovery.contracts import (
@@ -10,6 +11,7 @@ from nearhive_discovery.contracts import (
     DiscoveryStatus,
     EvidenceBatch,
 )
+from nearhive_discovery.http import SSRFError
 from nearhive_discovery.sources.base import SourceAdapter
 from nearhive_discovery.sources.configured_directory import ConfiguredDirectorySource
 
@@ -197,3 +199,75 @@ directories:
 
         assert len(batches) == 1
         assert len(batches[0].companies) == 3
+
+    @pytest.mark.asyncio
+    async def test_card_without_website_has_no_domain(self, sample_job: DiscoveryJob) -> None:
+        """Asserts card without a website does not fall back to directory evidence_url domain."""
+        html_without_website = """
+        <div class="directory-card" data-company-id="no-web-1">
+            <h3 class="company-title">Local Bakery</h3>
+            <span class="company-location">Main Street</span>
+        </div>
+        """
+        source = ConfiguredDirectorySource(
+            config={
+                "id": "dir_no_web",
+                "url_template": "https://directory.example.com/search?page={page}",
+                "selectors": {
+                    "card": ".directory-card",
+                    "name": ".company-title::text",
+                    "source_record_id": "@data-company-id",
+                    "website": "a.nonexistent::attr(href)",
+                },
+            },
+            fetcher=AsyncMock(return_value=html_without_website),
+        )
+        batches = []
+        async for batch in source.run(sample_job):
+            batches.append(batch)
+        assert len(batches) == 1
+        comp = batches[0].companies[0]
+        assert comp.name == "Local Bakery"
+        assert comp.domain is None
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_private_address_blocked(self) -> None:
+        """Asserts redirect from directory page to private/internal IP raises SSRFError."""
+        source = ConfiguredDirectorySource(
+            config={"id": "test_dir", "url_template": "https://directory.example.com/test"},
+            resolve_dns=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.get.return_value = httpx.Response(
+            status_code=302,
+            headers={"Location": "http://127.0.0.1/admin"},
+        )
+        source._http_client = mock_client
+        with pytest.raises(SSRFError):
+            await source._fetch("https://directory.example.com/test")
+
+    @pytest.mark.asyncio
+    async def test_safe_redirect_followed(self) -> None:
+        """Asserts safe public redirect is followed properly."""
+        source = ConfiguredDirectorySource(
+            config={"id": "test_dir", "url_template": "https://directory.example.com/test"},
+            resolve_dns=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [
+            httpx.Response(
+                status_code=301,
+                headers={"Location": "https://directory.example.com/redirected"},
+                request=httpx.Request("GET", "https://directory.example.com/test"),
+            ),
+            httpx.Response(
+                status_code=200,
+                text="<html><body>Redirected content</body></html>",
+                request=httpx.Request("GET", "https://directory.example.com/redirected"),
+            ),
+        ]
+        source._http_client = mock_client
+        content = await source._fetch("https://directory.example.com/test")
+        assert "Redirected content" in content
+        assert mock_client.get.call_count == 2
+

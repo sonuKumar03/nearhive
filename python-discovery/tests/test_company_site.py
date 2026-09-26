@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
+import httpx
 import pytest
 
 from nearhive_discovery.contracts import (
@@ -10,6 +11,7 @@ from nearhive_discovery.contracts import (
     DiscoveryStatus,
     EvidenceBatch,
 )
+from nearhive_discovery.http import SSRFError
 from nearhive_discovery.sources.base import SourceAdapter
 from nearhive_discovery.sources.company_site import (
     CompanySiteSource,
@@ -247,3 +249,91 @@ class TestCompanySiteBoundary:
         assert not any("/cart" in u for u in crawled_urls)
         assert not any("/login" in u for u in crawled_urls)
         assert not any("external-domain" in u for u in crawled_urls)
+
+    @pytest.mark.asyncio
+    async def test_discovered_sitemap_xml_parses_loc_tags(
+        self, sample_job: DiscoveryJob, site_fixtures: dict[str, str]
+    ) -> None:
+        """Asserts discovered .xml sitemap in HTML links is parsed for <loc> tags, enqueuing valid pages."""
+        crawled_urls = []
+
+        html_with_sitemap_link = """
+        <html>
+            <body>
+                <h1>Welcome</h1>
+                <a href="/sitemap.xml">XML Sitemap</a>
+            </body>
+        </html>
+        """
+
+        async def mock_fetch(url: str) -> str:
+            crawled_urls.append(url)
+            if "sitemap.xml" in url:
+                return site_fixtures["sitemap"]
+            elif url.endswith("/about"):
+                return site_fixtures["about"]
+            elif url.endswith("/contact"):
+                return site_fixtures["contact"]
+            elif url.endswith("/careers"):
+                return site_fixtures["careers"]
+            elif url.endswith("/locations"):
+                return site_fixtures["locations"]
+            return html_with_sitemap_link
+
+        source = CompanySiteSource(
+            target_url="https://novarobotics.example.com",
+            max_pages=10,
+            max_depth=2,
+            fetcher=mock_fetch,
+        )
+
+        batches = []
+        async for batch in source.run(sample_job):
+            batches.append(batch)
+
+        assert any("sitemap.xml" in u for u in crawled_urls)
+        # Should have crawled pages discovered from the sitemap's <loc> tags
+        assert any(u.endswith("/about") for u in crawled_urls)
+        assert any(u.endswith("/contact") for u in crawled_urls)
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_private_address_blocked(self) -> None:
+        """Asserts official site redirect to private/internal IP raises SSRFError."""
+        source = CompanySiteSource(
+            target_url="https://novarobotics.example.com",
+            resolve_dns=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.get.return_value = httpx.Response(
+            status_code=302,
+            headers={"Location": "http://169.254.169.254/latest/meta-data"},
+        )
+        source._http_client = mock_client
+        with pytest.raises(SSRFError):
+            await source._fetch("https://novarobotics.example.com")
+
+    @pytest.mark.asyncio
+    async def test_safe_redirect_followed(self) -> None:
+        """Asserts safe redirect is followed properly."""
+        source = CompanySiteSource(
+            target_url="https://novarobotics.example.com",
+            resolve_dns=False,
+        )
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [
+            httpx.Response(
+                status_code=301,
+                headers={"Location": "https://novarobotics.example.com/en"},
+                request=httpx.Request("GET", "https://novarobotics.example.com"),
+            ),
+            httpx.Response(
+                status_code=200,
+                text="<html><body>Hello World</body></html>",
+                request=httpx.Request("GET", "https://novarobotics.example.com/en"),
+            ),
+        ]
+        source._http_client = mock_client
+        content = await source._fetch("https://novarobotics.example.com")
+        assert "Hello World" in content
+        assert mock_client.get.call_count == 2
+

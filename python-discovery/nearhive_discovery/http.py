@@ -5,6 +5,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from scrapy.downloadermiddlewares.redirect import RedirectMiddleware
 from scrapy.exceptions import IgnoreRequest
 from scrapy.http import Request, Response
@@ -231,6 +232,48 @@ class SafeRedirectMiddleware(RedirectMiddleware):
 
 
 DEFAULT_USER_AGENT = "NearHiveBot/1.0 (+https://nearhive.com/bot; bot@nearhive.com)"
+
+
+async def safe_fetch_text(
+    url: str,
+    client: httpx.AsyncClient | None = None,
+    resolve_dns: bool = True,
+    max_redirects: int = 5,
+    user_agent: str = DEFAULT_USER_AGENT,
+    timeout: float = 15.0,
+) -> str:
+    """Fetches text from a public URL using httpx, revalidating every redirect target against SSRF policy."""
+    validate_public_url(url, resolve_dns=resolve_dns)
+
+    current_url = url
+    owns_client = False
+    if client is None:
+        client = httpx.AsyncClient(timeout=timeout)
+        owns_client = True
+
+    try:
+        for _ in range(max_redirects + 1):
+            resp = await client.get(
+                current_url,
+                headers={"User-Agent": user_agent},
+                follow_redirects=False,
+            )
+            if resp.status_code in (301, 302, 303, 307, 308) and "Location" in resp.headers:
+                location = resp.headers["Location"]
+                normalized = validate_redirect(
+                    current_url, location, resolve_dns=resolve_dns
+                )
+                current_url = normalized.url
+                continue
+
+            resp.raise_for_status()
+            return resp.text
+
+        raise SSRFError(f"Too many redirects from {url} (exceeded {max_redirects})")
+    finally:
+        if owns_client:
+            await client.aclose()
+
 
 DEFAULT_CRAWL_SETTINGS: dict[str, Any] = {
     "ROBOTSTXT_OBEY": True,

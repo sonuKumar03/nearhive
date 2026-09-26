@@ -21,6 +21,7 @@ from nearhive_discovery.contracts import (
 from nearhive_discovery.http import (
     DEFAULT_USER_AGENT,
     SSRFError,
+    safe_fetch_text,
     validate_public_url,
 )
 from nearhive_discovery.sources.base import BaseSourceAdapter
@@ -140,25 +141,11 @@ class CompanySiteSource(BaseSourceAdapter):
         validate_public_url(url, resolve_dns=self.resolve_dns)
         if self.fetcher is not None:
             return await self.fetcher(url)
-
-        if self._http_client is not None:
-            resp = await self._http_client.get(
-                url,
-                headers={"User-Agent": DEFAULT_USER_AGENT},
-                follow_redirects=True,
-                timeout=15.0,
-            )
-            resp.raise_for_status()
-            return resp.text
-
-        async with httpx.AsyncClient(
-            timeout=15.0,
-            follow_redirects=True,
-            headers={"User-Agent": DEFAULT_USER_AGENT},
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.text
+        return await safe_fetch_text(
+            url,
+            client=self._http_client,
+            resolve_dns=self.resolve_dns,
+        )
 
     def _parse_sitemap_urls(self, xml_text: str, target_domain: str) -> list[str]:
         """Extracts allowed, non-rejected URLs from an XML sitemap."""
@@ -229,6 +216,21 @@ class CompanySiteSource(BaseSourceAdapter):
                     html = await self._fetch(current_url)
                 except Exception as exc:
                     logger.warning("Failed to fetch official site page %s: %s", current_url, exc)
+                    continue
+
+                # If page is an XML sitemap, parse <loc> URLs and enqueue valid same-site URLs
+                is_xml_sitemap = (
+                    current_url.lower().endswith(".xml")
+                    or "<?xml" in html[:100].lower()
+                    or "<urlset" in html[:200].lower()
+                )
+                if is_xml_sitemap:
+                    sitemap_links = self._parse_sitemap_urls(html, target_domain)
+                    for sm_url in sitemap_links:
+                        if sm_url not in enqueued_urls and sm_url not in visited_urls:
+                            enqueued_urls.add(sm_url)
+                            if depth + 1 <= self.max_depth:
+                                queue.append((sm_url, depth + 1))
                     continue
 
                 # 1. JSON-LD Extraction

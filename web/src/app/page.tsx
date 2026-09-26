@@ -96,6 +96,22 @@ export default function HomePage() {
   const totalCount = searchData?.meta?.total ?? companies.length;
   const isJobRunning = runningJobs.length > 0;
 
+  // Automatically sync selected company profile with latest verified search data
+  useEffect(() => {
+    if (selectedCompany && companies.length > 0) {
+      const fresh = companies.find((c) => c.id === selectedCompany.id);
+      if (
+        fresh &&
+        (fresh.confidence !== selectedCompany.confidence ||
+          fresh.verified !== selectedCompany.verified ||
+          fresh.address !== selectedCompany.address ||
+          fresh.distance_meters !== selectedCompany.distance_meters)
+      ) {
+        setSelectedCompany(fresh);
+      }
+    }
+  }, [companies, selectedCompany]);
+
   // Derive pre-selected tech hub region and coordinates for the scrape modal
   const { selectedRegion, selectedModalCenter, selectedDefaultMode } = (() => {
     // 1. If a company is currently selected, prioritize its location & city

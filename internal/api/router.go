@@ -6,11 +6,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sonukumar/nearhive/internal/auth"
+	"github.com/sonukumar/nearhive/internal/queue"
 	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/store"
 )
 
 func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
+	return NewRouterWithQueue(s, authMgr, orchestrator, nil, jwtSecret)
+}
+
+func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, q queue.JobQueue, jwtSecret string) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -21,7 +26,7 @@ func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orche
 	authHandler := &AuthHandler{store: s, authMgr: authMgr}
 	searchHandler := &SearchHandler{store: s, history: s}
 	companyHandler := &CompanyHandler{store: s}
-	jobHandler := NewJobHandler(s, orchestrator, nil)
+	jobHandler := NewJobHandler(s, orchestrator, nil).WithQueue(q)
 
 	// API Root Info
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,7 @@ help: ## Show this help message
 	@echo "  make logs        Stream logs from all services"
 	@echo "  make logs-web    Stream logs from the Next.js React frontend"
 	@echo "  make logs-app    Stream logs from the Go NearHive application"
+	@echo "  make logs-crawler Stream logs from the standalone crawler daemon"
 	@echo "  make logs-db     Stream logs from PostGIS database"
 	@echo "  make ps          Show container status"
 	@echo "  make clean       Stop containers and WIPE all database volumes (fresh start)"
@@ -49,6 +50,9 @@ logs-web: ## Follow web frontend logs
 
 logs-app: ## Follow application logs
 	docker compose logs -f app
+
+logs-crawler: ## Follow standalone crawler logs
+	docker compose logs -f crawler
 
 logs-db: ## Follow database logs
 	docker compose logs -f db

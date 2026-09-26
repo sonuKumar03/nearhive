@@ -1,0 +1,136 @@
+{
+  "jobs": [
+    {
+      "id": 101,
+      "internal_job_id": 900101,
+      "title": "Senior Software Engineer",
+      "updated_at": "2026-09-25T14:30:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/101",
+      "location": {
+        "name": "Austin, TX"
+      },
+      "workplace_type": "hybrid",
+      "departments": [
+        {
+          "id": 11,
+          "name": "Engineering"
+        }
+      ],
+      "offices": [
+        {
+          "id": 21,
+          "name": "Austin HQ",
+          "location": "Austin, Texas, United States"
+        }
+      ],
+      "content": "<p>We are seeking a <strong>Senior Software Engineer</strong> to build scalable backend distributed systems. Experience with Python, Go, and PostgreSQL required.</p>"
+    },
+    {
+      "id": 102,
+      "internal_job_id": 900102,
+      "title": "Lead DevOps & Infrastructure Engineer",
+      "updated_at": "2026-09-24T09:00:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/102",
+      "location": {
+        "name": "Remote, US"
+      },
+      "workplace_type": "remote",
+      "departments": [
+        {
+          "id": 12,
+          "name": "Infrastructure"
+        }
+      ],
+      "offices": [],
+      "content": "<div>Lead our cloud infrastructure with Terraform, AWS, and Kubernetes. Multi-region reliability and observability.</div>"
+    },
+    {
+      "id": 103,
+      "internal_job_id": 900103,
+      "title": "Staff Data Scientist",
+      "updated_at": "2026-08-01T12:00:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/103",
+      "location": {
+        "name": "Austin, TX (On-site)"
+      },
+      "workplace_type": "in_office",
+      "departments": [
+        {
+          "id": 13,
+          "name": "Data Science"
+        }
+      ],
+      "offices": [
+        {
+          "id": 21,
+          "name": "Austin HQ",
+          "location": "Austin, Texas, United States"
+        }
+      ],
+      "content": "<p>Build state-of-the-art predictive ML models for autonomous robotics perception.</p>"
+    },
+    {
+      "id": 104,
+      "internal_job_id": 900104,
+      "title": "Technical Recruiter",
+      "updated_at": "2026-09-26T10:00:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/104",
+      "location": {
+        "name": "Austin, TX"
+      },
+      "workplace_type": "hybrid",
+      "departments": [
+        {
+          "id": 14,
+          "name": "People & Talent"
+        }
+      ],
+      "offices": [
+        {
+          "id": 21,
+          "name": "Austin HQ",
+          "location": "Austin, Texas, United States"
+        }
+      ],
+      "content": "<p>Help us scale our engineering teams by recruiting top talent across the country.</p>"
+    },
+    {
+      "id": 105,
+      "internal_job_id": 900105,
+      "title": "Enterprise Account Executive",
+      "updated_at": "2026-09-26T11:00:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/105",
+      "location": {
+        "name": "New York, NY"
+      },
+      "workplace_type": "remote",
+      "departments": [
+        {
+          "id": 15,
+          "name": "Sales"
+        }
+      ],
+      "offices": [],
+      "content": "<p>Close seven-figure enterprise contracts for our autonomous robotics platform.</p>"
+    },
+    {
+      "id": 106,
+      "internal_job_id": 900106,
+      "title": "Sanitation Engineer",
+      "updated_at": "2026-09-25T11:00:00Z",
+      "absolute_url": "https://boards.greenhouse.io/novarobotics/jobs/106",
+      "location": {
+        "name": "Austin, TX"
+      },
+      "workplace_type": "in_office",
+      "departments": [
+        {
+          "id": 16,
+          "name": "Facilities"
+        }
+      ],
+      "offices": [],
+      "content": "<p>Maintain clean and sanitary warehouse facility standards.</p>"
+    }
+  ]
+}

@@ -7,6 +7,13 @@ from nearhive_discovery.client import (
     PayloadTooLargeError,
     ValidationError,
 )
+from nearhive_discovery.classify import (
+    RULE_VERSION,
+    Classification,
+    classify_arrangement,
+    classify_technical_role,
+    publication_state,
+)
 from nearhive_discovery.contracts import (
     CONTRACT_VERSION,
     BatchRecordResult,
@@ -36,9 +43,11 @@ from nearhive_discovery.worker import Source, Worker
 
 __all__ = [
     "CONTRACT_VERSION",
+    "RULE_VERSION",
     "AuthenticationError",
     "BatchRecordResult",
     "BatchResult",
+    "Classification",
     "CompanyEvidence",
     "DiscoveryBatch",
     "DiscoveryJob",
@@ -59,9 +68,12 @@ __all__ = [
     "batch_to_dict",
     "batch_to_json",
     "claim_job",
+    "classify_arrangement",
+    "classify_technical_role",
     "finish_job",
     "heartbeat",
     "is_cancelled",
+    "publication_state",
     "record_source_run",
     "settings",
 ]

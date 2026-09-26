@@ -9,6 +9,7 @@ import (
 )
 
 type Engine struct {
+	store       store.Store
 	classifier  *Classifier
 	matcher     *Matcher
 	merger      *Merger
@@ -17,12 +18,14 @@ type Engine struct {
 
 func NewEngine(s store.Store, g geocoder.Geocoder) *Engine {
 	return &Engine{
+		store:       s,
 		classifier:  NewClassifier(),
 		matcher:     NewMatcher(s),
 		merger:      NewMerger(s),
 		geoverifier: NewGeoVerifier(s, g),
 	}
 }
+
 
 func (e *Engine) ProcessSighting(ctx context.Context, s model.Sighting) error {
 	// 1. Entity classification: drop non-tech entities (schools, coaching centers, hospitals, etc.)

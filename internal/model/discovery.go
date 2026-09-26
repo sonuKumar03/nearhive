@@ -160,3 +160,10 @@ type TechnicalJobPosting struct {
 	CreatedAt               time.Time        `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time        `db:"updated_at" json:"updated_at"`
 }
+
+type LocationEvidenceSummary struct {
+	LocationID     uuid.UUID      `db:"location_id" json:"location_id"`
+	SourceFamilies pq.StringArray `db:"source_families" json:"source_families"`
+	EvidenceTypes  pq.StringArray `db:"evidence_types" json:"evidence_types"`
+}
+

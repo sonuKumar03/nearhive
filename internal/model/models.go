@@ -73,18 +73,25 @@ type Location struct {
 }
 
 type Sighting struct {
-	ID          uuid.UUID  `db:"id" json:"id"`
-	Source      string     `db:"source" json:"source"`
-	SourceURL   *string    `db:"source_url" json:"source_url,omitempty"`
-	CompanyName string     `db:"company_name" json:"company_name"`
-	RawAddress  string     `db:"raw_address" json:"raw_address"`
-	Lat         float64    `db:"lat" json:"lat"`
-	Lng         float64    `db:"lng" json:"lng"`
-	Metadata    JSONMap    `db:"metadata" json:"metadata"`
-	CompanyID   *uuid.UUID `db:"company_id" json:"company_id,omitempty"`
-	LocationID  *uuid.UUID `db:"location_id" json:"location_id,omitempty"`
-	ScrapedAt   time.Time  `db:"scraped_at" json:"scraped_at"`
+	ID             uuid.UUID  `db:"id" json:"id"`
+	Source         string     `db:"source" json:"source"`
+	SourceFamily   string     `db:"source_family" json:"source_family,omitempty"`
+	SourceRecordID *string    `db:"source_record_id" json:"source_record_id,omitempty"`
+	ContentHash    *string    `db:"content_hash" json:"content_hash,omitempty"`
+	DiscoveryJobID *uuid.UUID `db:"discovery_job_id" json:"discovery_job_id,omitempty"`
+	SourceURL      *string    `db:"source_url" json:"source_url,omitempty"`
+	CompanyName    string     `db:"company_name" json:"company_name"`
+	RawAddress     string     `db:"raw_address" json:"raw_address"`
+	Lat            float64    `db:"lat" json:"lat"`
+	Lng            float64    `db:"lng" json:"lng"`
+	Metadata       JSONMap    `db:"metadata" json:"metadata"`
+	CompanyID      *uuid.UUID `db:"company_id" json:"company_id,omitempty"`
+	LocationID     *uuid.UUID `db:"location_id" json:"location_id,omitempty"`
+	FirstSeenAt    time.Time  `db:"first_seen_at" json:"first_seen_at,omitempty"`
+	LastSeenAt     time.Time  `db:"last_seen_at" json:"last_seen_at,omitempty"`
+	ScrapedAt      time.Time  `db:"scraped_at" json:"scraped_at"`
 }
+
 
 type ScrapeTask struct {
 	ID         uuid.UUID  `db:"id" json:"id"`

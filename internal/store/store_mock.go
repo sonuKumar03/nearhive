@@ -183,6 +183,18 @@ func (m *MockStore) UpdateLocationConfidence(_ context.Context, id uuid.UUID, co
 	return nil
 }
 
+func (m *MockStore) UpdateLocationPresence(_ context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if l, ok := m.Locations[id]; ok {
+		l.PresenceType = presence
+		l.Confidence = confidence
+		l.Verified = verified
+	}
+	return nil
+}
+
+
 func (m *MockStore) UpdateLocationCoords(_ context.Context, id uuid.UUID, lat, lng float64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -296,12 +308,23 @@ func (m *MockStore) SaveSightings(_ context.Context, source string, sightings []
 		if s.ID == uuid.Nil {
 			s.ID = uuid.New()
 		}
-		s.Source = source
+		if s.Source == "" {
+			s.Source = source
+		}
+		if s.SourceFamily == "" && s.Metadata != nil {
+			if sf, ok := s.Metadata["source_family"].(string); ok && sf != "" {
+				s.SourceFamily = sf
+			}
+		}
+		if s.SourceFamily == "" {
+			s.SourceFamily = s.Source
+		}
 		sCopy := s
 		m.Sightings[s.ID] = &sCopy
 	}
 	return nil
 }
+
 
 func (m *MockStore) GetSightingsByCompany(_ context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	m.mu.RLock()
@@ -691,3 +714,100 @@ func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJo
 	m.TechnicalJobs[job.ID] = &jobCopy
 	return nil
 }
+
+func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var summaries []model.LocationEvidenceSummary
+	for _, l := range m.Locations {
+		if l.CompanyID != companyID {
+			continue
+		}
+
+		familySet := make(map[string]bool)
+		typeSet := make(map[string]bool)
+
+		// 1. Sightings linked or within 500m
+		for _, s := range m.Sightings {
+			if s.CompanyID != nil && *s.CompanyID != companyID {
+				continue
+			}
+
+			matched := false
+			if s.LocationID != nil && *s.LocationID == l.ID {
+				matched = true
+			} else if s.Lat != 0 && s.Lng != 0 {
+				dist := haversineDistance(l.Lat, l.Lng, s.Lat, s.Lng)
+				if dist <= 500 {
+					matched = true
+				}
+			}
+
+			if matched {
+				fam := s.SourceFamily
+				if fam == "" && s.Metadata != nil {
+					if sf, ok := s.Metadata["source_family"].(string); ok && sf != "" {
+						fam = sf
+					}
+				}
+				if fam == "" {
+					fam = s.Source
+				}
+				if fam != "" {
+					familySet[fam] = true
+					if fam == "job_ats" {
+						typeSet["job"] = true
+					} else {
+						typeSet["company"] = true
+					}
+				}
+			}
+		}
+
+		// 2. Technical jobs linked or within 500m
+		for _, j := range m.TechnicalJobs {
+			if j.CompanyID != companyID {
+				continue
+			}
+
+			matched := false
+			if j.LocationID != nil && *j.LocationID == l.ID {
+				matched = true
+			} else if j.Lat != nil && j.Lng != nil && *j.Lat != 0 && *j.Lng != 0 {
+				dist := haversineDistance(l.Lat, l.Lng, *j.Lat, *j.Lng)
+				if dist <= 500 {
+					matched = true
+				}
+			}
+
+			if matched {
+				if j.SourceFamily != "" {
+					familySet[j.SourceFamily] = true
+				}
+				typeSet["job"] = true
+			}
+		}
+
+		var families []string
+		for fam := range familySet {
+			families = append(families, fam)
+		}
+		sort.Strings(families)
+
+		var types []string
+		for t := range typeSet {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+
+		summaries = append(summaries, model.LocationEvidenceSummary{
+			LocationID:     l.ID,
+			SourceFamilies: families,
+			EvidenceTypes:  types,
+		})
+	}
+
+	return summaries, nil
+}
+

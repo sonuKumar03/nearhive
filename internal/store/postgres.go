@@ -320,8 +320,13 @@ func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sighti
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareNamedContext(ctx, `
-		INSERT INTO sightings (id, source, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at)
-		VALUES (:id, :source, :source_url, :company_name, :raw_address, :lat, :lng, :metadata, :company_id, :location_id, :scraped_at)
+		INSERT INTO sightings (id, source, source_family, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at)
+		VALUES (:id, :source, :source_family, :source_url, :company_name, :raw_address, :lat, :lng, :metadata, :company_id, :location_id, :scraped_at)
+		ON CONFLICT (id) DO UPDATE SET
+			source = EXCLUDED.source,
+			source_family = COALESCE(NULLIF(EXCLUDED.source_family, ''), sightings.source_family),
+			company_id = COALESCE(EXCLUDED.company_id, sightings.company_id),
+			location_id = COALESCE(EXCLUDED.location_id, sightings.location_id)
 	`)
 	if err != nil {
 		return err
@@ -342,6 +347,7 @@ func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sighti
 			return err
 		}
 	}
+
 
 	return tx.Commit()
 }

@@ -43,6 +43,7 @@ type LocationStore interface {
 	GetLocationsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Location, error)
 	FindNearbyLocation(ctx context.Context, companyID uuid.UUID, lat, lng float64, radiusMeters float64) (*model.Location, error)
 	UpdateLocationConfidence(ctx context.Context, id uuid.UUID, confidence float64) error
+	UpdateLocationPresence(ctx context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error
 	UpdateLocationCoords(ctx context.Context, id uuid.UUID, lat, lng float64) error
 	Search(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error)
 	CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error)
@@ -77,7 +78,9 @@ type DiscoveryStore interface {
 	CancelDiscoveryJob(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
 	UpsertDiscoverySourceRun(ctx context.Context, run *model.DiscoverySourceRun) error
 	GetDiscoverySourceRuns(ctx context.Context, discoveryJobID uuid.UUID) ([]model.DiscoverySourceRun, error)
+	GetLocationEvidenceSummaries(ctx context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error)
 }
+
 
 type TechnicalJobStore interface {
 	GetTechnicalJobsByCompany(ctx context.Context, companyID uuid.UUID, since time.Time) ([]model.TechnicalJobPosting, error)

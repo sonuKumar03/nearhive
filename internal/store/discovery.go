@@ -409,3 +409,61 @@ func (s *PostgresStore) UpsertTechnicalJob(ctx context.Context, job *model.Techn
 	)
 	return err
 }
+
+func (s *PostgresStore) UpdateLocationPresence(ctx context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error {
+	query := `UPDATE locations SET presence_type = $1, confidence = $2, verified = $3, updated_at = NOW() WHERE id = $4`
+	_, err := s.db.ExecContext(ctx, query, string(presence), confidence, verified, id)
+	return err
+}
+
+func (s *PostgresStore) GetLocationEvidenceSummaries(ctx context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error) {
+	query := `
+		WITH combined_evidence AS (
+			SELECT 
+				l.id AS location_id,
+				COALESCE(NULLIF(s.source_family, ''), s.source) AS source_family,
+				CASE 
+					WHEN COALESCE(NULLIF(s.source_family, ''), s.source) = 'job_ats' THEN 'job'
+					ELSE 'company'
+				END AS evidence_type
+			FROM locations l
+			JOIN sightings s ON (
+				s.location_id = l.id 
+				OR (s.company_id = l.company_id AND s.lat != 0 AND s.lng != 0 AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography, 500))
+			)
+			WHERE l.company_id = $1
+
+			UNION
+
+			SELECT 
+				l.id AS location_id,
+				t.source_family AS source_family,
+				'job' AS evidence_type
+			FROM locations l
+			JOIN technical_job_postings t ON (
+				t.location_id = l.id 
+				OR (t.company_id = l.company_id AND t.lat IS NOT NULL AND t.lng IS NOT NULL AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint(t.lng, t.lat), 4326)::geography, 500))
+			)
+			WHERE l.company_id = $1
+		)
+		SELECT 
+			l.id AS location_id,
+			COALESCE(ARRAY_AGG(DISTINCT ce.source_family) FILTER (WHERE ce.source_family IS NOT NULL AND ce.source_family != ''), '{}') AS source_families,
+			COALESCE(ARRAY_AGG(DISTINCT ce.evidence_type) FILTER (WHERE ce.evidence_type IS NOT NULL AND ce.evidence_type != ''), '{}') AS evidence_types
+		FROM locations l
+		LEFT JOIN combined_evidence ce ON ce.location_id = l.id
+		WHERE l.company_id = $1
+		GROUP BY l.id
+	`
+
+	var summaries []model.LocationEvidenceSummary
+	err := s.db.SelectContext(ctx, &summaries, query, companyID)
+	if err != nil {
+		return nil, err
+	}
+	if summaries == nil {
+		summaries = []model.LocationEvidenceSummary{}
+	}
+	return summaries, nil
+}
+

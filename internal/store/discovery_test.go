@@ -345,3 +345,89 @@ func TestTechnicalJobStore_RecentByCompany(t *testing.T) {
 		assert.NotContains(t, titles, "Security Analyst")
 	})
 }
+
+func TestDiscoveryStore_LocationEvidenceAndPresence(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		uid := uuid.New().String()[:8]
+
+		companyID := uuid.New()
+		err := s.CreateCompany(ctx, &model.Company{
+			ID:             companyID,
+			Name:           fmt.Sprintf("Nova Tech %s", uid),
+			NormalizedName: fmt.Sprintf("nova tech %s", uid),
+		})
+		require.NoError(t, err)
+
+		locID := uuid.New()
+		err = s.CreateLocation(ctx, &model.Location{
+			ID:           locID,
+			CompanyID:    companyID,
+			Address:      "Bellandur, Bangalore",
+			Lat:          12.9279,
+			Lng:          77.6811,
+			PresenceType: model.PresenceTypeProbableOffice,
+			Confidence:   0.6,
+			Verified:     false,
+		})
+		require.NoError(t, err)
+
+		// 1. Test UpdateLocationPresence
+		err = s.UpdateLocationPresence(ctx, locID, model.PresenceTypeConfirmedOffice, 0.9, true)
+		require.NoError(t, err)
+
+		locs, err := s.GetLocationsByCompany(ctx, companyID)
+		require.NoError(t, err)
+		require.Len(t, locs, 1)
+		assert.Equal(t, model.PresenceTypeConfirmedOffice, locs[0].PresenceType)
+		assert.InDelta(t, 0.9, locs[0].Confidence, 0.01)
+		assert.True(t, locs[0].Verified)
+
+		// 2. Add multiple sightings with same and different source families
+		sighting1 := model.Sighting{
+			ID:           uuid.New(),
+			CompanyID:    &companyID,
+			LocationID:   &locID,
+			Source:       "official_site",
+			SourceFamily: "official_site",
+			CompanyName:  fmt.Sprintf("Nova Tech %s", uid),
+			Lat:          12.9279,
+			Lng:          77.6811,
+		}
+		sighting2 := model.Sighting{
+			ID:           uuid.New(),
+			CompanyID:    &companyID,
+			LocationID:   &locID,
+			Source:       "osm",
+			SourceFamily: "open_dataset",
+			CompanyName:  fmt.Sprintf("Nova Tech %s", uid),
+			Lat:          12.9280, // ~15m away
+			Lng:          77.6812,
+		}
+		sighting3 := model.Sighting{
+			ID:           uuid.New(),
+			CompanyID:    &companyID,
+			LocationID:   &locID,
+			Source:       "wikidata",
+			SourceFamily: "open_dataset", // Duplicate family
+			CompanyName:  fmt.Sprintf("Nova Tech %s", uid),
+			Lat:          12.9281,
+			Lng:          77.6813,
+		}
+		err = s.SaveSightings(ctx, "mixed", []model.Sighting{sighting1, sighting2, sighting3})
+		require.NoError(t, err)
+
+		// 3. Test GetLocationEvidenceSummaries returns distinct source families
+		summaries, err := s.GetLocationEvidenceSummaries(ctx, companyID)
+		require.NoError(t, err)
+		require.Len(t, summaries, 1)
+
+		summary := summaries[0]
+		assert.Equal(t, locID, summary.LocationID)
+		assert.Contains(t, []string(summary.SourceFamilies), "official_site")
+		assert.Contains(t, []string(summary.SourceFamilies), "open_dataset")
+		assert.Len(t, summary.SourceFamilies, 2)
+		assert.Contains(t, []string(summary.EvidenceTypes), "company")
+	})
+}
+

@@ -180,3 +180,123 @@ class TestJSONLDExtraction:
         assert len(companies) == 1
         assert companies[0].name == "Valid Survivor"
         assert len(jobs) == 0
+
+    def test_relative_urls_resolved_against_base_url(self) -> None:
+        html = """
+        <html>
+        <head>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "Relative Link Corp",
+            "url": "/about-us"
+          }
+          </script>
+          <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": "Software Engineer",
+            "url": "/careers/eng-42",
+            "hiringOrganization": {
+              "@type": "Organization",
+              "name": "Relative Link Corp",
+              "url": "/company-info"
+            }
+          }
+          </script>
+        </head>
+        </html>
+        """
+        companies, jobs = extract_jsonld(html, base_url="https://example.com/section/page")
+        assert len(companies) == 1
+        assert companies[0].evidence_url == "https://example.com/about-us"
+        assert companies[0].domain == "example.com"
+
+        assert len(jobs) == 1
+        assert jobs[0].canonical_url == "https://example.com/careers/eng-42"
+        assert jobs[0].company_domain == "example.com"
+
+    def test_coordinate_validation_and_bounds(self) -> None:
+        # Case 1: Only latitude provided -> rejected to (None, None)
+        html_lat_only = """
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "LocalBusiness",
+          "name": "Lat Only Business",
+          "geo": {"@type": "GeoCoordinates", "latitude": 30.2672}
+        }
+        </script>
+        """
+        c1, _ = extract_jsonld(html_lat_only)
+        assert len(c1) == 1
+        assert c1[0].lat is None
+        assert c1[0].lng is None
+
+        # Case 2: Only longitude provided -> rejected to (None, None)
+        html_lng_only = """
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "LocalBusiness",
+          "name": "Lng Only Business",
+          "geo": {"@type": "GeoCoordinates", "longitude": -97.7431}
+        }
+        </script>
+        """
+        c2, _ = extract_jsonld(html_lng_only)
+        assert len(c2) == 1
+        assert c2[0].lat is None
+        assert c2[0].lng is None
+
+        # Case 3: Out of bounds coordinates (lat > 90, lng > 180) -> rejected to (None, None)
+        html_oob = """
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "LocalBusiness",
+          "name": "Out of Bounds Business",
+          "geo": {"@type": "GeoCoordinates", "latitude": 95.0, "longitude": 200.0}
+        }
+        </script>
+        """
+        c3, _ = extract_jsonld(html_oob)
+        assert len(c3) == 1
+        assert c3[0].lat is None
+        assert c3[0].lng is None
+
+        # Case 4: Valid coordinates preserved
+        html_valid = """
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "LocalBusiness",
+          "name": "Valid Bounds Business",
+          "geo": {"@type": "GeoCoordinates", "latitude": 37.7749, "longitude": -122.4194}
+        }
+        </script>
+        """
+        c4, _ = extract_jsonld(html_valid)
+        assert len(c4) == 1
+        assert c4[0].lat == pytest.approx(37.7749)
+        assert c4[0].lng == pytest.approx(-122.4194)
+
+    def test_script_tag_with_type_parameters(self) -> None:
+        html = """
+        <html>
+        <head>
+          <script type="application/ld+json; charset=utf-8">
+          {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "Charset Parameter Company"
+          }
+          </script>
+        </head>
+        </html>
+        """
+        companies, _ = extract_jsonld(html)
+        assert len(companies) == 1
+        assert companies[0].name == "Charset Parameter Company"

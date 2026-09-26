@@ -55,6 +55,18 @@ def _extract_domain(url: str | None) -> str | None:
     return None
 
 
+def _resolve_url(raw_url: Any, base_url: str) -> str | None:
+    """Resolves relative URLs against base_url, or returns base_url if raw_url is missing."""
+    if not raw_url or not isinstance(raw_url, str):
+        return base_url if base_url else None
+    cleaned = raw_url.strip()
+    if not cleaned:
+        return base_url if base_url else None
+    if base_url:
+        return urllib.parse.urljoin(base_url, cleaned)
+    return cleaned
+
+
 def _format_address(raw_addr: Any) -> str:
     if isinstance(raw_addr, str):
         return raw_addr.strip()
@@ -97,6 +109,13 @@ def _extract_coordinates(entity: dict[str, Any]) -> tuple[float | None, float | 
             lng = float(lng_raw)
         except (ValueError, TypeError):
             lng = None
+
+    # Both coordinates must be present and bounded within valid geographic limits
+    if lat is None or lng is None:
+        return None, None
+
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lng <= 180.0):
+        return None, None
 
     return lat, lng
 
@@ -180,7 +199,7 @@ def extract_jsonld(
 
     try:
         sel = Selector(text=html_text)
-        script_blocks = sel.xpath('//script[@type="application/ld+json"]/text()').getall()
+        script_blocks = sel.xpath('//script[contains(@type, "application/ld+json")]/text()').getall()
     except Exception as exc:
         logger.warning("Failed to parse HTML for JSON-LD scripts: %s", exc)
         return [], []
@@ -222,7 +241,7 @@ def extract_jsonld(
                         source_id = ident
                 source_record_id = str(source_id) if source_id else None
 
-                evidence_url = entity.get("url") or base_url or None
+                evidence_url = _resolve_url(entity.get("url"), base_url)
                 domain = _extract_domain(evidence_url) or _extract_domain(base_url)
 
                 phone = entity.get("telephone") or entity.get("phone")
@@ -272,7 +291,7 @@ def extract_jsonld(
                 hiring = entity.get("hiringOrganization")
                 if isinstance(hiring, dict):
                     company_name = hiring.get("name") or hiring.get("legalName") or ""
-                    hiring_url = hiring.get("url")
+                    hiring_url = _resolve_url(hiring.get("url"), base_url)
                 elif isinstance(hiring, str):
                     company_name = hiring
                     hiring_url = None
@@ -292,7 +311,7 @@ def extract_jsonld(
                     source_id = entity.get("@id")
                 source_job_id = str(source_id) if source_id else None
 
-                canonical_url = entity.get("url") or base_url or ""
+                canonical_url = _resolve_url(entity.get("url"), base_url) or ""
                 company_domain = (
                     _extract_domain(hiring_url)
                     or _extract_domain(canonical_url)

@@ -28,7 +28,7 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
           onClick();
         }
       }}
-      aria-label={`View details for ${company.name}, located ${distanceKm} kilometers away`}
+      aria-label={`${company.name}, ${distanceKm} km away, ${conf}% verified`}
       className="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-850/80 focus:bg-slate-800/80 focus:outline-none focus:ring-1 focus:ring-amber-500/50 border border-slate-800/80 hover:border-amber-500/30 transition-all cursor-pointer group space-y-2"
     >
       <div className="flex items-start justify-between gap-2">

@@ -144,7 +144,7 @@ export default function HomePage() {
             disabled={geoLoading}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all cursor-pointer font-medium disabled:opacity-50"
             title={geoError || 'Locate around current browser location'}
-            aria-label="Locate around current browser location"
+            aria-label="Locate Me around current browser location"
           >
             {geoLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

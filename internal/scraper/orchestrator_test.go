@@ -22,8 +22,8 @@ func (m *mockScraper) Name() string {
 	return m.name
 }
 
-func (m *mockScraper) Supports(region string) bool {
-	return m.region == "" || m.region == region
+func (m *mockScraper) Supports(req ScrapeRequest) bool {
+	return m.region == "" || m.region == req.Region
 }
 
 func (m *mockScraper) Scrape(_ context.Context, req ScrapeRequest) (*ScrapeResult, error) {
@@ -136,7 +136,7 @@ type blockingMockScraper struct {
 }
 
 func (b *blockingMockScraper) Name() string { return b.name }
-func (b *blockingMockScraper) Supports(region string) bool { return true }
+func (b *blockingMockScraper) Supports(req ScrapeRequest) bool { return true }
 func (b *blockingMockScraper) Scrape(ctx context.Context, _ ScrapeRequest) (*ScrapeResult, error) {
 	select {
 	case <-ctx.Done():
@@ -144,5 +144,35 @@ func (b *blockingMockScraper) Scrape(ctx context.Context, _ ScrapeRequest) (*Scr
 	case <-time.After(5 * time.Second):
 		return &ScrapeResult{}, nil
 	}
+}
+
+func TestOrchestrator_DynamicLocationScraping(t *testing.T) {
+	s := store.NewMockStore()
+	orch := NewOrchestrator(s, nil, nil, 2)
+
+	ms := &mockScraper{
+		name: "spatial_scraper",
+		sightings: []model.Sighting{
+			{
+				CompanyName: "SOMA Tech",
+				RawAddress:  "Market St, San Francisco",
+				Lat:         37.7749,
+				Lng:         -122.4194,
+				ScrapedAt:   time.Now(),
+			},
+		},
+	}
+	orch.Register(ms)
+
+	sightings, err := orch.ScrapeRegion(context.Background(), ScrapeRequest{
+		Lat:      37.7749,
+		Lng:      -122.4194,
+		RadiusKM: 10,
+	})
+
+	assert.NoError(t, err)
+	assert.Len(t, sightings, 1)
+	assert.Equal(t, 37.7749, ms.calledWith.Lat)
+	assert.Equal(t, -122.4194, ms.calledWith.Lng)
 }
 

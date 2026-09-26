@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@/lib/api-client';
 import { ScrapeJob } from '@/types';
@@ -5,22 +6,25 @@ import { ScrapeJob } from '@/types';
 export function useScrapeJob(jobId: string | null) {
   const queryClient = useQueryClient();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['job', jobId],
-    queryFn: async () => {
-      const job = await fetchApi<ScrapeJob>(`/api/v1/jobs/${jobId}`);
-      if (job.status === 'done' || job.status === 'cancelled') {
-        queryClient.invalidateQueries({ queryKey: ['companies'] });
-        queryClient.invalidateQueries({ queryKey: ['clusters'] });
-      }
-      return job;
-    },
+    queryFn: () => fetchApi<ScrapeJob>(`/api/v1/jobs/${jobId}`),
     enabled: !!jobId,
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
       return s === 'running' || s === 'pending' ? 2000 : false;
     },
   });
+
+  const status = query.data?.status;
+  useEffect(() => {
+    if (status === 'done' || status === 'cancelled') {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+    }
+  }, [status, queryClient]);
+
+  return query;
 }
 
 export function useTriggerScraper() {

@@ -29,6 +29,11 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		JSONError(w, http.StatusBadRequest, "latitude must be between -90 and 90, longitude between -180 and 180", "VALIDATION_ERROR", nil)
+		return
+	}
+
 	radiusKM := 15.0
 	if rStr := r.URL.Query().Get("radius"); rStr != "" {
 		if rVal, err := strconv.ParseFloat(rStr, 64); err == nil && rVal > 0 && rVal <= 100 {
@@ -111,6 +116,11 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 	lng, err2 := strconv.ParseFloat(lngStr, 64)
 	if err1 != nil || err2 != nil {
 		JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		JSONError(w, http.StatusBadRequest, "latitude must be between -90 and 90, longitude between -180 and 180", "VALIDATION_ERROR", nil)
 		return
 	}
 

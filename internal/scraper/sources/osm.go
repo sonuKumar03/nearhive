@@ -49,8 +49,8 @@ func (o *OSMScraper) Name() string {
 	return "osm"
 }
 
-func (o *OSMScraper) Supports(region string) bool {
-	return true
+func (o *OSMScraper) Supports(req scraper.ScrapeRequest) bool {
+	return (req.Lat != 0 || req.Lng != 0) || req.Region != ""
 }
 
 type overpassCenter struct {
@@ -72,6 +72,10 @@ type overpassResponse struct {
 }
 
 func (o *OSMScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*scraper.ScrapeResult, error) {
+	if req.Lat == 0 && req.Lng == 0 {
+		return &scraper.ScrapeResult{}, fmt.Errorf("osm requires valid coordinates (cannot query 0, 0)")
+	}
+
 	radiusMeters := int(req.RadiusKM * 1000)
 	if radiusMeters <= 0 {
 		radiusMeters = 15000

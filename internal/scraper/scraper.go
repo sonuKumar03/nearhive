@@ -22,6 +22,6 @@ type ScrapeResult struct {
 
 type Scraper interface {
 	Name() string
-	Supports(region string) bool
+	Supports(req ScrapeRequest) bool
 	Scrape(ctx context.Context, req ScrapeRequest) (*ScrapeResult, error)
 }

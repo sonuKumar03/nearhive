@@ -32,6 +32,17 @@ export default function ClientMap({
   const circleRef = useRef<L.Circle | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
 
+  // Store latest callbacks in refs to avoid stale closures
+  const onCenterChangeRef = useRef(onCenterChange);
+  const onSelectCompanyRef = useRef(onSelectCompany);
+  const onClusterZoomRef = useRef(onClusterZoom);
+
+  useEffect(() => {
+    onCenterChangeRef.current = onCenterChange;
+    onSelectCompanyRef.current = onSelectCompany;
+    onClusterZoomRef.current = onClusterZoom;
+  });
+
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -55,7 +66,7 @@ export default function ClientMap({
     const epicenterIcon = L.divIcon({
       className: 'epicenter-marker',
       html: `
-        <div class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4">
+        <div class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4 cursor-grab active:cursor-grabbing">
           <div class="absolute w-8 h-8 rounded-full bg-amber-500/30 epicenter-pulse"></div>
           <div class="w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950 shadow-lg shadow-amber-500/50"></div>
         </div>
@@ -70,7 +81,12 @@ export default function ClientMap({
 
     epicenter.on('dragend', (e) => {
       const pos = e.target.getLatLng();
-      onCenterChange(pos.lat, pos.lng);
+      onCenterChangeRef.current(pos.lat, pos.lng);
+    });
+
+    // Clicking anywhere on map repositions the search epicenter
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      onCenterChangeRef.current(e.latlng.lat, e.latlng.lng);
     });
 
     const circle = L.circle([center.lat, center.lng], {
@@ -89,6 +105,9 @@ export default function ClientMap({
     return () => {
       map.remove();
       mapRef.current = null;
+      epicenterRef.current = null;
+      circleRef.current = null;
+      markerLayerRef.current = null;
     };
   }, []);
 
@@ -125,7 +144,7 @@ export default function ClientMap({
 
         const marker = L.marker([c.lat, c.lng], { icon });
         marker.on('click', () => {
-          onClusterZoom(c.lat, c.lng);
+          onClusterZoomRef.current(c.lat, c.lng);
         });
         markerLayerRef.current?.addLayer(marker);
       });
@@ -138,7 +157,7 @@ export default function ClientMap({
         const customIcon = L.divIcon({
           className: 'company-pin',
           html: `
-            <div class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60" style="background-color: ${markerColor}">
+            <div class="flex items-center justify-center w-7 h-7 -ml-3.5 -mt-3.5 rounded-xl shadow-lg border border-slate-900/60 transition-transform hover:scale-110 cursor-pointer" style="background-color: ${markerColor}">
               <span class="text-xs">🏢</span>
             </div>
           `,
@@ -146,7 +165,7 @@ export default function ClientMap({
         });
 
         const marker = L.marker([comp.lat, comp.lng], { icon: customIcon });
-        marker.on('click', () => onSelectCompany(comp));
+        marker.on('click', () => onSelectCompanyRef.current(comp));
         markerLayerRef.current?.addLayer(marker);
       });
     }

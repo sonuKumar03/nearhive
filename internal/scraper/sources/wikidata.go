@@ -52,8 +52,11 @@ func (w *WikidataScraper) Name() string {
 	return "wikidata"
 }
 
-func (w *WikidataScraper) Supports(region string) bool {
-	_, ok := cityWikidataQIDs[strings.ToLower(strings.TrimSpace(region))]
+func (w *WikidataScraper) Supports(req scraper.ScrapeRequest) bool {
+	if req.Lat != 0 || req.Lng != 0 {
+		return true
+	}
+	_, ok := cityWikidataQIDs[strings.ToLower(strings.TrimSpace(req.Region))]
 	return ok
 }
 
@@ -76,19 +79,38 @@ type sparqlResponse struct {
 }
 
 func (w *WikidataScraper) Scrape(ctx context.Context, req scraper.ScrapeRequest) (*scraper.ScrapeResult, error) {
-	cityKey := strings.ToLower(strings.TrimSpace(req.Region))
-	cityQID, ok := cityWikidataQIDs[cityKey]
-	if !ok {
-		return &scraper.ScrapeResult{}, nil
-	}
+	var query string
+	if req.Lat != 0 && req.Lng != 0 {
+		radiusKM := req.RadiusKM
+		if radiusKM <= 0 {
+			radiusKM = 25
+		}
+		// SPARQL wikibase:around point format is "Point(long lat)"
+		query = fmt.Sprintf(`SELECT ?company ?companyLabel ?website ?coord WHERE {
+  SERVICE wikibase:around {
+    ?company wdt:P625 ?coord .
+    bd:serviceParam wikibase:point "Point(%f %f)"^^geo:wktLiteral .
+    bd:serviceParam wikibase:distance "%f" .
+  }
+  ?company wdt:P31/wdt:P279* wd:Q4830453 .
+  OPTIONAL { ?company wdt:P856 ?website . }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+} LIMIT 100`, req.Lng, req.Lat, radiusKM)
+	} else {
+		cityKey := strings.ToLower(strings.TrimSpace(req.Region))
+		cityQID, ok := cityWikidataQIDs[cityKey]
+		if !ok {
+			return &scraper.ScrapeResult{}, nil
+		}
 
-	query := fmt.Sprintf(`SELECT ?company ?companyLabel ?website ?coord WHERE {
+		query = fmt.Sprintf(`SELECT ?company ?companyLabel ?website ?coord WHERE {
   ?company wdt:P31/wdt:P279* wd:Q4830453 .
   ?company wdt:P159 %s .
   OPTIONAL { ?company wdt:P856 ?website . }
   OPTIONAL { ?company wdt:P625 ?coord . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 } LIMIT 100`, cityQID)
+	}
 
 	reqURL := fmt.Sprintf("%s?query=%s&format=json", w.apiURL, url.QueryEscape(query))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)

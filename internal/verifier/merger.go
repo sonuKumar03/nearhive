@@ -33,9 +33,14 @@ func (m *Merger) MergeSighting(ctx context.Context, s model.Sighting, match *Mat
 			Domain:         domainPtr,
 		}
 		if err := m.store.CreateCompany(ctx, newCompany); err != nil {
-			return err
+			if existing, findErr := m.store.FindByNormalizedName(ctx, newCompany.NormalizedName); findErr == nil && existing != nil {
+				companyID = existing.ID
+			} else {
+				return err
+			}
+		} else {
+			companyID = newCompany.ID
 		}
-		companyID = newCompany.ID
 	} else {
 		companyID = match.CompanyID
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -43,10 +44,27 @@ type TriggerJobRequest struct {
 
 func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	var req TriggerJobRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Region == "" {
-		req.Region = "Bangalore"
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		JSONError(w, http.StatusBadRequest, "invalid request body", "VALIDATION_ERROR", nil)
+		return
 	}
+
+	if req.Lat != 0 || req.Lng != 0 {
+		if req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
+			JSONError(w, http.StatusBadRequest, "latitude must be between -90 and 90, longitude between -180 and 180", "VALIDATION_ERROR", nil)
+			return
+		}
+	}
+
+	if req.Region == "" {
+		if req.Lat != 0 || req.Lng != 0 {
+			req.Region = fmt.Sprintf("Loc(%.4f, %.4f)", req.Lat, req.Lng)
+		} else {
+			JSONError(w, http.StatusBadRequest, "region or valid coordinates (lat and lng) are required", "VALIDATION_ERROR", nil)
+			return
+		}
+	}
+
 	if req.RadiusKM <= 0 {
 		req.RadiusKM = 15
 	}
@@ -58,7 +76,10 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		Region:    &req.Region,
 		StartedAt: func() *time.Time { t := time.Now(); return &t }(),
 	}
-	_ = h.store.CreateJob(r.Context(), job)
+	if err := h.store.CreateJob(r.Context(), job); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to create scrape job", "INTERNAL_ERROR", nil)
+		return
+	}
 
 	if h.orchestrator != nil {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

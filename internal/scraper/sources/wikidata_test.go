@@ -58,9 +58,10 @@ func TestWikidataScraper_ParseResponse(t *testing.T) {
 	defer srv.Close()
 
 	scraperInstance := NewWikidataScraperWithURL(srv.URL, srv.Client())
-	assert.True(t, scraperInstance.Supports("Bangalore"))
-	assert.True(t, scraperInstance.Supports("Hyderabad"))
-	assert.False(t, scraperInstance.Supports("Atlantis"))
+	assert.True(t, scraperInstance.Supports(scraper.ScrapeRequest{Region: "Bangalore"}))
+	assert.True(t, scraperInstance.Supports(scraper.ScrapeRequest{Region: "Hyderabad"}))
+	assert.False(t, scraperInstance.Supports(scraper.ScrapeRequest{Region: "Atlantis"}))
+	assert.True(t, scraperInstance.Supports(scraper.ScrapeRequest{Lat: 37.7749, Lng: -122.4194}))
 
 	res, err := scraperInstance.Scrape(context.Background(), scraper.ScrapeRequest{
 		Region: "Bangalore",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MapContainer from '@/components/map/MapContainer';
 import Sidebar from '@/components/sidebar/Sidebar';
 import CompanyDetailDrawer from '@/components/drawers/CompanyDetailDrawer';
@@ -10,8 +10,9 @@ import { useCompanies } from '@/hooks/useCompanies';
 import { useClusters } from '@/hooks/useClusters';
 import { useScrapeJob } from '@/hooks/useScrapeJobs';
 import { useAuth } from '@/hooks/useAuth';
+import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
-import { Play, Layers, RefreshCw } from 'lucide-react';
+import { Play, Layers, RefreshCw, LocateFixed, Loader2 } from 'lucide-react';
 
 const CITY_PRESETS = [
   { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
@@ -26,10 +27,31 @@ export default function HomePage() {
   const [center, setCenter] = useState({ lat: 12.9716, lng: 77.5946 });
   const [radiusKm, setRadiusKm] = useState(15);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isClusterMode, setIsClusterMode] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+
+  // Debounce search input by 300ms to avoid flooding PostGIS
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Browser Geolocation hook
+  const { getCurrentLocation, loading: geoLoading, error: geoError } = useGeolocation();
+
+  async function handleLocateMe() {
+    try {
+      const coords = await getCurrentLocation();
+      setCenter(coords);
+    } catch (err) {
+      console.warn('Geolocation failed:', err);
+    }
+  }
 
   // Initialize guest session
   useAuth();
@@ -41,7 +63,7 @@ export default function HomePage() {
     lat: center.lat,
     lng: center.lng,
     radius_km: radiusKm,
-    q: searchQuery,
+    q: debouncedQuery,
   });
 
   const { data: clusterData } = useClusters(
@@ -60,7 +82,7 @@ export default function HomePage() {
   const isJobRunning = activeJob?.status === 'running' || activeJob?.status === 'pending';
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-950 select-none">
+    <div className="h-screen w-screen flex flex-col bg-slate-950">
       {/* Top Header */}
       <header className="h-14 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -80,13 +102,28 @@ export default function HomePage() {
 
           <div className="h-4 w-px bg-slate-800 hidden md:block mx-1" />
 
+          {/* Current Location Button */}
+          <button
+            onClick={handleLocateMe}
+            disabled={geoLoading}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all cursor-pointer font-medium disabled:opacity-50"
+            title={geoError || 'Locate around current browser location'}
+          >
+            {geoLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <LocateFixed className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>Locate Me</span>
+          </button>
+
           {/* City Presets */}
           <div className="hidden lg:flex items-center gap-1">
             {CITY_PRESETS.map((c) => (
               <button
                 key={c.name}
                 onClick={() => setCenter({ lat: c.lat, lng: c.lng })}
-                className="px-2 py-1 text-xs rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/40 transition-colors"
+                className="px-2 py-1 text-xs rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/40 transition-colors cursor-pointer"
               >
                 {c.name}
               </button>
@@ -186,6 +223,8 @@ export default function HomePage() {
           isOpen={isScrapeOpen}
           onClose={() => setIsScrapeOpen(false)}
           defaultRegion="Bangalore"
+          currentCenter={center}
+          currentRadiusKm={radiusKm}
           activeJobId={activeJobId}
           setActiveJobId={setActiveJobId}
         />

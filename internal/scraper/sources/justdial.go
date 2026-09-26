@@ -27,7 +27,17 @@ func (j *JustDialScraper) Name() string {
 	return "justdial"
 }
 
-func (j *JustDialScraper) Supports(region string) bool {
+func (j *JustDialScraper) Supports(req scraper.ScrapeRequest) bool {
+	// If coordinates are provided and clearly outside India, skip
+	if req.Lat != 0 && req.Lng != 0 {
+		if req.Lat < 6 || req.Lat > 38 || req.Lng < 68 || req.Lng > 98 {
+			return false
+		}
+	}
+	// If region is an unparsed coordinate string or empty, JustDial URL cannot parse it
+	if strings.HasPrefix(req.Region, "Loc(") || req.Region == "" {
+		return false
+	}
 	return true
 }
 

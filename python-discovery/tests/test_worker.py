@@ -945,4 +945,79 @@ def test_worker_resolves_job_locations_before_submission(db_conn, test_user_id):
     assert submitted_job.metadata.get("location_resolution") == "geocoded"
 
 
+def test_worker_heartbeat_cancellation_stops_cleanly_without_lease_lost_error(db_conn, test_user_id):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    class GeneratorCancellingSource(Source):
+        name = "osm"
+        source_family = "open_dataset"
+
+        def run(self, job: DiscoveryJob):
+            # Batch 1
+            yield EvidenceBatch(
+                contract_version=1,
+                discovery_job_id=str(job.id),
+                source="osm",
+                source_family="open_dataset",
+                observed_at=datetime.now(timezone.utc),
+                companies=[CompanyEvidence(name="Company 1", domain="comp1.com")],
+                jobs=[],
+            )
+            # Cancel job in DB mid-run
+            with psycopg.connect(DATABASE_URL, autocommit=True) as cancel_conn:
+                with cancel_conn.cursor() as c:
+                    c.execute("UPDATE discovery_jobs SET status = 'cancelled' WHERE id = %s", (job.id,))
+            # Give background heartbeat thread a moment to notice cancellation
+            time.sleep(0.2)
+            # Batch 2 should be skipped/halted cleanly
+            yield EvidenceBatch(
+                contract_version=1,
+                discovery_job_id=str(job.id),
+                source="osm",
+                source_family="open_dataset",
+                observed_at=datetime.now(timezone.utc),
+                companies=[CompanyEvidence(name="Company 2", domain="comp2.com")],
+                jobs=[],
+            )
+
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "companies": [{"index": 0, "status": "accepted", "id": "c-0"}],
+                "jobs": [],
+            },
+        )
+    )
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client(transport=transport))
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[GeneratorCancellingSource()],
+        worker_id="test-worker-cancel-heartbeat",
+        heartbeat_interval_seconds=0.05,
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, error, company_count FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "cancelled"
+        # Must NOT have an execution error like 'Lease lost during execution'
+        assert row[1] is None
+        assert row[2] == 1
+
+
+
 

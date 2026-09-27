@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
 
@@ -64,12 +65,13 @@ class OpenStreetMapSource(BaseSourceAdapter):
                     if resp.status_code == 200:
                         return resp.json()
                     last_error = f"Endpoint {endpoint} returned status {resp.status_code}"
+                    logger.info("Overpass endpoint %s returned HTTP %d; trying next endpoint...", endpoint, resp.status_code)
                 finally:
                     if self.http_client is None:
                         await client.aclose()
             except Exception as exc:
                 last_error = str(exc)
-                logger.debug("Overpass endpoint %s failed: %s", endpoint, exc)
+                logger.info("Overpass endpoint %s failed (%s); trying next endpoint...", endpoint, exc)
 
         logger.warning("All Overpass endpoints failed for discovery: %s", last_error)
         return None
@@ -88,7 +90,7 @@ class OpenStreetMapSource(BaseSourceAdapter):
             radius_meters = 15000
 
         query = (
-            f'[out:json][timeout:25];('
+            f'[out:json][timeout:20];('
             f'nwr["office"~"company|it|software|telecommunication|coworking|research"](around:{radius_meters},{job.lat},{job.lng});'
             f'nwr["amenity"="coworking_space"](around:{radius_meters},{job.lat},{job.lng});'
             f');out center;'

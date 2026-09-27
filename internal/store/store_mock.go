@@ -210,6 +210,8 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 	defer m.mu.RUnlock()
 	var results []model.CompanySearchResult
 
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+
 	for _, l := range m.Locations {
 		c, ok := m.Companies[l.CompanyID]
 		if !ok {
@@ -220,10 +222,50 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 			if opts.MinConfidence != nil && l.Confidence < *opts.MinConfidence {
 				continue
 			}
+			if opts.Industry != nil && *opts.Industry != "" {
+				if c.Industry == nil || !strings.Contains(strings.ToLower(*c.Industry), strings.ToLower(*opts.Industry)) {
+					continue
+				}
+			}
+			if opts.Query != nil && *opts.Query != "" {
+				q := strings.ToLower(*opts.Query)
+				if !strings.Contains(strings.ToLower(c.Name), q) && !strings.Contains(strings.ToLower(c.NormalizedName), q) {
+					continue
+				}
+			}
 			pType := l.PresenceType
 			if pType == "" {
 				pType = model.PresenceTypeProbableOffice
 			}
+
+			recentCount := 0
+			arrangementMap := make(map[model.WorkArrangement]bool)
+			for _, job := range m.TechnicalJobs {
+				if job.CompanyID != c.ID || !job.IsActive {
+					continue
+				}
+				if job.PostedAt == nil || job.PostedAt.Before(fourteenDaysAgo) {
+					continue
+				}
+				isTrustworthy := job.PublicationState == model.PublicationStatePostedRecently ||
+					(job.PostedAtConfidence > 0 && job.PublicationState != model.PublicationStateObservedRecently)
+				if !isTrustworthy {
+					continue
+				}
+				recentCount++
+				if job.WorkArrangement != "" {
+					arrangementMap[job.WorkArrangement] = true
+				}
+			}
+
+			var arrangements []model.WorkArrangement
+			for arr := range arrangementMap {
+				arrangements = append(arrangements, arr)
+			}
+			sort.Slice(arrangements, func(i, j int) bool {
+				return arrangements[i] < arrangements[j]
+			})
+
 			results = append(results, model.CompanySearchResult{
 				CompanyID:               c.ID,
 				Name:                    c.Name,
@@ -239,12 +281,37 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 				Confidence:              l.Confidence,
 				DistanceMeters:          dist,
 				PresenceType:            pType,
-				RecentTechnicalJobCount: 0,
+				RecentTechnicalJobCount: recentCount,
+				Arrangements:            arrangements,
 				Verified:                l.Verified,
 			})
 		}
 	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].DistanceMeters < results[j].DistanceMeters
+	})
+
+	if opts.Offset > 0 {
+		if opts.Offset >= len(results) {
+			return []model.CompanySearchResult{}, nil
+		}
+		results = results[opts.Offset:]
+	}
+
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
 	return results, nil
+}
+
+func (m *MockStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
+	return m.Search(ctx, lat, lng, radiusMeters, opts)
 }
 
 func (m *MockStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
@@ -651,6 +718,10 @@ func (m *MockStore) GetTechnicalJobsByCompany(_ context.Context, companyID uuid.
 		}
 		return tI.After(tJ)
 	})
+
+	if res == nil {
+		res = []model.TechnicalJobPosting{}
+	}
 
 	return res, nil
 }

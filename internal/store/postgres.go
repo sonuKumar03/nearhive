@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
@@ -222,6 +222,11 @@ func (s *PostgresStore) UpdateLocationCoords(ctx context.Context, id uuid.UUID, 
 	return err
 }
 
+type searchCompanyRow struct {
+	model.CompanySearchResult
+	ArrangementsRaw pq.StringArray `db:"arrangements_raw"`
+}
+
 func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
 	limit := opts.Limit
 	if limit <= 0 || limit > 100 {
@@ -235,10 +240,22 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	       l.confidence,
 	       ST_Distance(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_m,
 	       COALESCE(l.presence_type, 'probable_office') AS presence_type,
-	       0 AS recent_technical_job_count,
+	       COALESCE(j.recent_technical_job_count, 0) AS recent_technical_job_count,
+	       COALESCE(j.arrangements, '{}') AS arrangements_raw,
 	       l.verified
 	FROM locations l
 	JOIN companies c ON c.id = l.company_id
+	LEFT JOIN LATERAL (
+	    SELECT 
+	        COUNT(*)::int AS recent_technical_job_count,
+	        ARRAY_AGG(DISTINCT tj.work_arrangement ORDER BY tj.work_arrangement) AS arrangements
+	    FROM technical_job_postings tj
+	    WHERE tj.company_id = c.id
+	      AND tj.is_active = TRUE
+	      AND tj.posted_at IS NOT NULL
+	      AND tj.posted_at >= NOW() - INTERVAL '14 days'
+	      AND (tj.publication_state = 'posted_recently' OR (tj.posted_at_confidence > 0 AND tj.publication_state != 'observed_recently'))
+	) j ON TRUE
 	WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	  AND ($4::float IS NULL OR l.confidence >= $4)
 	  AND ($5::text IS NULL OR c.industry ILIKE '%' || $5 || '%')
@@ -247,9 +264,28 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	LIMIT $7 OFFSET $8
 	`
 
-	var results []model.CompanySearchResult
-	err := s.db.SelectContext(ctx, &results, query, lng, lat, radiusMeters, opts.MinConfidence, opts.Industry, opts.Query, limit, opts.Offset)
-	return results, err
+	var rows []searchCompanyRow
+	err := s.db.SelectContext(ctx, &rows, query, lng, lat, radiusMeters, opts.MinConfidence, opts.Industry, opts.Query, limit, opts.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.CompanySearchResult, len(rows))
+	for i, row := range rows {
+		results[i] = row.CompanySearchResult
+		if len(row.ArrangementsRaw) > 0 {
+			arrs := make([]model.WorkArrangement, len(row.ArrangementsRaw))
+			for j, a := range row.ArrangementsRaw {
+				arrs[j] = model.WorkArrangement(a)
+			}
+			results[i].Arrangements = arrs
+		}
+	}
+	return results, nil
+}
+
+func (s *PostgresStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
+	return s.Search(ctx, lat, lng, radiusMeters, opts)
 }
 
 func (s *PostgresStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {

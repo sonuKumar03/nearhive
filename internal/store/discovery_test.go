@@ -603,3 +603,242 @@ func TestDiscoveryIdempotency_StoreSightingAndJob(t *testing.T) {
 	})
 }
 
+func TestSearchDiscovery(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		uid := uuid.New().String()[:8]
+
+		// Center coordinates: Indiranagar, Bangalore
+		centerLat := 12.9716
+		centerLng := 77.6412
+
+		// Company 1: Confirmed Office with 2 recent trustworthy technical jobs (in_office, remote),
+		// 1 stale job (hybrid) and 1 observed_recently job (untrusted posted date)
+		c1 := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Alpha Corp %s", uid),
+			NormalizedName: fmt.Sprintf("alpha corp %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, c1))
+		loc1 := &model.Location{
+			CompanyID:    c1.ID,
+			Address:      "Indiranagar 100ft Rd",
+			Lat:          centerLat + 0.001,
+			Lng:          centerLng + 0.001,
+			Confidence:   0.95,
+			PresenceType: model.PresenceTypeConfirmedOffice,
+			Verified:     true,
+		}
+		require.NoError(t, s.CreateLocation(ctx, loc1))
+
+		now := time.Now().Truncate(time.Millisecond)
+		fiveDaysAgo := now.Add(-5 * 24 * time.Hour)
+		tenDaysAgo := now.Add(-10 * 24 * time.Hour)
+		twentyDaysAgo := now.Add(-20 * 24 * time.Hour)
+		twoDaysAgo := now.Add(-2 * 24 * time.Hour)
+
+		// Trustworthy recent job 1 (in_office)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c1.ID,
+			Source:                  fmt.Sprintf("gh-%s-1", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Backend Engineer",
+			NormalizedTitle:         "backend engineer",
+			ContentHash:             fmt.Sprintf("hash-alpha-1-%s", uid),
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &fiveDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             fiveDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}))
+
+		// Trustworthy recent job 2 (remote)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c1.ID,
+			Source:                  fmt.Sprintf("gh-%s-2", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Frontend Engineer",
+			NormalizedTitle:         "frontend engineer",
+			ContentHash:             fmt.Sprintf("hash-alpha-2-%s", uid),
+			WorkArrangement:         model.WorkArrangementRemote,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &tenDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             tenDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}))
+
+		// Stale job (>14 days, posted 20 days ago) - should NOT count
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c1.ID,
+			Source:                  fmt.Sprintf("gh-%s-3", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "DevOps Engineer",
+			NormalizedTitle:         "devops engineer",
+			ContentHash:             fmt.Sprintf("hash-alpha-3-%s", uid),
+			WorkArrangement:         model.WorkArrangementHybrid,
+			PublicationState:        model.PublicationStateStale,
+			PostedAt:                &twentyDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             twentyDaysAgo,
+			LastSeenAt:              twentyDaysAgo,
+			IsActive:                true,
+			TechnicalClassification: "infrastructure",
+			RuleVersion:             "v1",
+		}))
+
+		// Untrustworthy date / observed recently job - should NOT count in recent_technical_job_count
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c1.ID,
+			Source:                  fmt.Sprintf("careers-%s-4", uid),
+			SourceFamily:            "official_site",
+			Title:                   "Data Scientist",
+			NormalizedTitle:         "data scientist",
+			ContentHash:             fmt.Sprintf("hash-alpha-4-%s", uid),
+			WorkArrangement:         model.WorkArrangementHybrid,
+			PublicationState:        model.PublicationStateObservedRecently,
+			PostedAtConfidence:      0.0,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              twoDaysAgo,
+			IsActive:                true,
+			TechnicalClassification: "data_engineering",
+			RuleVersion:             "v1",
+		}))
+
+		// Company 2: Probable Office, no jobs
+		c2 := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Beta Tech %s", uid),
+			NormalizedName: fmt.Sprintf("beta tech %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, c2))
+		loc2 := &model.Location{
+			CompanyID:    c2.ID,
+			Address:      "Indiranagar 12th Main",
+			Lat:          centerLat + 0.002,
+			Lng:          centerLng + 0.002,
+			Confidence:   0.7,
+			PresenceType: model.PresenceTypeProbableOffice,
+			Verified:     false,
+		}
+		require.NoError(t, s.CreateLocation(ctx, loc2))
+
+		// Company 3: Job Location Only, with 1 hybrid job posted 3 days ago
+		c3 := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Gamma Labs %s", uid),
+			NormalizedName: fmt.Sprintf("gamma labs %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, c3))
+		loc3 := &model.Location{
+			CompanyID:    c3.ID,
+			Address:      "Indiranagar Double Rd",
+			Lat:          centerLat + 0.003,
+			Lng:          centerLng + 0.003,
+			Confidence:   0.5,
+			PresenceType: model.PresenceTypeJobLocationOnly,
+			Verified:     false,
+		}
+		require.NoError(t, s.CreateLocation(ctx, loc3))
+		threeDaysAgo := now.Add(-3 * 24 * time.Hour)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c3.ID,
+			Source:                  fmt.Sprintf("lever-%s-1", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Security Analyst",
+			NormalizedTitle:         "security analyst",
+			ContentHash:             fmt.Sprintf("hash-gamma-1-%s", uid),
+			WorkArrangement:         model.WorkArrangementHybrid,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &threeDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             threeDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "security",
+			RuleVersion:             "v1",
+		}))
+
+		// Company 4: Remote-only jobs, NO location within radius (e.g., location 500km away)
+		c4 := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("RemoteOnly Corp %s", uid),
+			NormalizedName: fmt.Sprintf("remoteonly corp %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, c4))
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               c4.ID,
+			Source:                  fmt.Sprintf("remote-%s-1", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Staff Engineer (Remote)",
+			NormalizedTitle:         "staff engineer remote",
+			ContentHash:             fmt.Sprintf("hash-remote-1-%s", uid),
+			WorkArrangement:         model.WorkArrangementRemote,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &fiveDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             fiveDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}))
+		loc4 := &model.Location{
+			CompanyID:    c4.ID,
+			Address:      "Chennai, Tamil Nadu",
+			Lat:          13.0827,
+			Lng:          80.2707,
+			Confidence:   0.8,
+			PresenceType: model.PresenceTypeConfirmedOffice,
+		}
+		require.NoError(t, s.CreateLocation(ctx, loc4))
+
+		// Execute Search around Indiranagar center with 5km radius
+		results, err := s.Search(ctx, centerLat, centerLng, 5000, SearchOpts{})
+		require.NoError(t, err)
+
+		// c4 should NOT be in results
+		for _, r := range results {
+			assert.NotEqual(t, c4.ID, r.CompanyID, "Remote-only company without location in radius must not be returned")
+		}
+
+		// Find results for c1, c2, c3
+		var res1, res2, res3 *model.CompanySearchResult
+		for i := range results {
+			if results[i].CompanyID == c1.ID {
+				res1 = &results[i]
+			} else if results[i].CompanyID == c2.ID {
+				res2 = &results[i]
+			} else if results[i].CompanyID == c3.ID {
+				res3 = &results[i]
+			}
+		}
+
+		// Verify c1
+		require.NotNil(t, res1, "Alpha Corp should be found in search")
+		assert.Equal(t, model.PresenceTypeConfirmedOffice, res1.PresenceType)
+		assert.Equal(t, 2, res1.RecentTechnicalJobCount, "Should count only 2 trustworthy jobs within 14 days")
+		assert.ElementsMatch(t, []model.WorkArrangement{model.WorkArrangementInOffice, model.WorkArrangementRemote}, res1.Arrangements)
+
+		// Verify c2
+		require.NotNil(t, res2, "Beta Tech should be found in search")
+		assert.Equal(t, model.PresenceTypeProbableOffice, res2.PresenceType)
+		assert.Equal(t, 0, res2.RecentTechnicalJobCount)
+		assert.Empty(t, res2.Arrangements)
+
+		// Verify c3
+		require.NotNil(t, res3, "Gamma Labs should be found in search")
+		assert.Equal(t, model.PresenceTypeJobLocationOnly, res3.PresenceType)
+		assert.Equal(t, 1, res3.RecentTechnicalJobCount)
+		assert.ElementsMatch(t, []model.WorkArrangement{model.WorkArrangementHybrid}, res3.Arrangements)
+	})
+}
+
+

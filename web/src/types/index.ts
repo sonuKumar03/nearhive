@@ -221,3 +221,51 @@ export interface CompanyTechnicalJobsResponse {
   jobs: TechnicalJobPosting[];
   technical_jobs: TechnicalJobPosting[];
 }
+
+export interface TechnicalJobSearchResult {
+  id: string;
+  company_id: string;
+  company_name: string;
+  company_domain?: string;
+  title: string;
+  normalized_title: string;
+  description_excerpt?: string;
+  canonical_url?: string;
+  source: string;
+  source_family: string;
+  location_raw?: string;
+  lat: number;
+  lng: number;
+  distance_meters: number;
+  work_arrangement: WorkArrangement;
+  publication_state: PublicationState;
+  posted_at?: string;
+  posted_at_confidence: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  metadata?: Record<string, any>;
+}
+
+export interface TechnicalJobSearchResponse {
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    radius_km: number;
+    center: {
+      lat: number;
+      lng: number;
+    };
+  };
+  jobs: TechnicalJobSearchResult[];
+}
+
+export interface NearbyJobsParams {
+  lat: number;
+  lng: number;
+  radius_km?: number;
+  q?: string;
+  work_arrangement?: WorkArrangement;
+  limit?: number;
+  page?: number;
+}

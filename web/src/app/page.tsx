@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import MapContainer from '@/components/map/MapContainer';
-import Sidebar from '@/components/sidebar/Sidebar';
+import Sidebar, { SidebarMode } from '@/components/sidebar/Sidebar';
 import CompanyDetailDrawer from '@/components/drawers/CompanyDetailDrawer';
 import ScrapeModal from '@/components/drawers/ScrapeModal';
 import BackgroundScrapeWidget from '@/components/scrapers/BackgroundScrapeWidget';
 import { useCompanies } from '@/hooks/useCompanies';
+import { useNearbyJobs } from '@/hooks/useNearbyJobs';
 import { useClusters } from '@/hooks/useClusters';
 import { useScrapeJobs } from '@/hooks/useScrapeJobs';
 import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
@@ -34,6 +35,7 @@ export default function HomePage() {
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('companies');
   const [geoNotice, setGeoNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [isUserLocationActive, setIsUserLocationActive] = useState(false);
 
@@ -89,6 +91,16 @@ export default function HomePage() {
     radius_km: radiusKm,
     q: debouncedQuery,
   });
+
+  const { data: nearbyJobsData, isLoading: loadingJobs } = useNearbyJobs(
+    {
+      lat: center.lat,
+      lng: center.lng,
+      radius_km: radiusKm,
+      q: debouncedQuery,
+    },
+    sidebarMode === 'jobs'
+  );
 
   const { data: clusterData } = useClusters(
     {
@@ -381,6 +393,11 @@ export default function HomePage() {
           companies={companies}
           isLoading={loadingCompanies}
           totalCount={totalCount}
+          jobs={nearbyJobsData?.jobs || []}
+          isLoadingJobs={loadingJobs}
+          totalJobsCount={nearbyJobsData?.meta?.total}
+          activeMode={sidebarMode}
+          onModeChange={setSidebarMode}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelectCompany={(c) => {

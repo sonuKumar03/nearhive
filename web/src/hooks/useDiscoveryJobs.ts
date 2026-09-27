@@ -91,6 +91,7 @@ export function useDiscoveryJobs() {
       prevSignatureRef.current = currentSignature;
 
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['nearby-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
       queryClient.invalidateQueries({ queryKey: ['company'] });
       queryClient.invalidateQueries({ queryKey: ['technical-jobs'] });
@@ -114,6 +115,7 @@ export function useTriggerDiscovery() {
       queryClient.setQueryData(['discovery-job', job.id], job);
       queryClient.invalidateQueries({ queryKey: ['discovery-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['nearby-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
     },
   });
@@ -135,6 +137,7 @@ export function useCancelDiscovery() {
       }
       queryClient.invalidateQueries({ queryKey: ['discovery-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['nearby-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
       queryClient.invalidateQueries({ queryKey: ['company'] });
       queryClient.invalidateQueries({ queryKey: ['technical-jobs'] });

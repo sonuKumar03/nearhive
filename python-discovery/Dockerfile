@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Copy project definitions and code
 COPY pyproject.toml README.md ./
+COPY config/ ./config/
 COPY nearhive_discovery/ ./nearhive_discovery/
 
 # Install package dependencies and binary entrypoint

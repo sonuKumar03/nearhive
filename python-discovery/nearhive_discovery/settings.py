@@ -16,6 +16,7 @@ class Settings:
     heartbeat_interval_seconds: float = float(os.getenv("NEARHIVE_HEARTBEAT_INTERVAL", "15.0"))
     poll_interval_seconds: float = float(os.getenv("NEARHIVE_POLL_INTERVAL", "2.0"))
     playwright_contexts: int = int(os.getenv("PLAYWRIGHT_CONTEXTS", "2"))
+    max_company_sites: int = int(os.getenv("NEARHIVE_MAX_COMPANY_SITES", "50"))
 
 
 

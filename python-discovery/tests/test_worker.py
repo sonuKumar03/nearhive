@@ -688,3 +688,197 @@ def test_worker_async_generator_source_in_running_event_loop(db_conn, test_user_
         assert row[0] == "completed"
         assert row[1] == 2
 
+
+def test_worker_staged_execution_candidate_to_site_to_ats(db_conn, test_user_id):
+    """Test staged execution: candidates -> company sites (ceiling honored) -> ATS adapters (deduplicated)."""
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    # 1. Candidate source emits 3 companies, with duplicate domains
+    candidate_batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="osm",
+        source_family="open_dataset",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(name="Alpha Corp", domain="alpha.example.com"),
+            CompanyEvidence(name="Alpha Corp Branch", domain="alpha.example.com"),  # duplicate domain
+            CompanyEvidence(name="Beta Corp", domain="beta.example.com"),
+            CompanyEvidence(name="Gamma Corp", domain="gamma.example.com"),
+        ],
+        jobs=[],
+    )
+
+    candidate_source = MockSource(name="osm", source_family="open_dataset", return_batches=[candidate_batch])
+
+    # Track ATS provider runs
+    executed_greenhouse_boards: list[str] = []
+    executed_lever_sites: list[str] = []
+
+    class MockGHSource(Source):
+        name = "greenhouse"
+        source_family = "job_ats"
+        def __init__(self, boards=None):
+            self.boards = list(boards or [])
+        def add_board(self, board_token, company_name=None, company_domain=None):
+            if not any(b["board_token"] == board_token for b in self.boards):
+                self.boards.append({"board_token": board_token, "company_name": company_name, "company_domain": company_domain})
+        def run(self, job: DiscoveryJob):
+            for b in self.boards:
+                executed_greenhouse_boards.append(b["board_token"])
+            return []
+
+    class MockLevSource(Source):
+        name = "lever"
+        source_family = "job_ats"
+        def __init__(self, sites=None):
+            self.sites = list(sites or [])
+        def add_site(self, site, company_name=None, company_domain=None):
+            if not any(s["site"] == site for s in self.sites):
+                self.sites.append({"site": site, "company_name": company_name, "company_domain": company_domain})
+        def run(self, job: DiscoveryJob):
+            for s in self.sites:
+                executed_lever_sites.append(s["site"])
+            return []
+
+    # Configured ATS targets (one overlaps with what company site will discover)
+    gh_source = MockGHSource(boards=[{"board_token": "overlap-gh", "company_name": "Alpha Corp", "company_domain": "alpha.example.com"}])
+    lever_source = MockLevSource(sites=[{"site": "configured-lever", "company_name": "Other", "company_domain": "other.com"}])
+
+    crawled_domains: list[str] = []
+
+    async def mock_site_fetch(url: str) -> str:
+        crawled_domains.append(url)
+        if "alpha.example.com" in url:
+            return """
+            <html>
+                <head><title>Alpha Corp</title></head>
+                <body>
+                    <a href="https://boards.greenhouse.io/overlap-gh">Greenhouse</a>
+                    <a href="https://jobs.lever.co/discovered-lever">Lever</a>
+                </body>
+            </html>
+            """
+        return "<html><head><title>Other</title></head><body>No jobs</body></html>"
+
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "companies": [{"index": i, "status": "accepted", "id": f"c-{i}"} for i in range(10)],
+                "jobs": [],
+            },
+        )
+    )
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client(transport=transport))
+
+    # Worker configured with max_company_sites = 2 (so gamma is capped out)
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[candidate_source, gh_source, lever_source],
+        worker_id="test-worker-staged",
+        max_company_sites=2,
+        site_fetcher=mock_site_fetch,
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+
+    # 1. Candidate source ran
+    assert candidate_source.called_with_job is not None
+
+    # 2. Company site crawl ran only for unique domains and respected ceiling of 2
+    assert len(crawled_domains) == 2
+    assert any("alpha.example.com" in u for u in crawled_domains)
+    assert any("beta.example.com" in u for u in crawled_domains)
+    assert not any("gamma.example.com" in u for u in crawled_domains)
+
+    # 3. Greenhouse ran with overlap deduplicated (ran exactly once for overlap-gh)
+    assert executed_greenhouse_boards == ["overlap-gh"]
+
+    # 4. Lever ran both configured and discovered
+    assert "configured-lever" in executed_lever_sites
+    assert "discovered-lever" in executed_lever_sites
+    assert len(executed_lever_sites) == 2
+
+
+def test_worker_staged_cancellation_stops_before_next_stage(db_conn, test_user_id):
+    """Test that cancelling a job during candidate stage stops execution before company site and ATS stages."""
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    class CancellingCandidateSource(Source):
+        name = "osm"
+        source_family = "open_dataset"
+        def run(self, job: DiscoveryJob):
+            # Cancel job in DB mid-run
+            with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+                with conn.cursor() as c:
+                    c.execute("UPDATE discovery_jobs SET status = 'cancelled' WHERE id = %s", (job.id,))
+            return [
+                EvidenceBatch(
+                    contract_version=1,
+                    discovery_job_id=str(job.id),
+                    source="osm",
+                    source_family="open_dataset",
+                    observed_at=datetime.now(timezone.utc),
+                    companies=[CompanyEvidence(name="Cancelled Corp", domain="cancelled.com")],
+                    jobs=[],
+                )
+            ]
+
+    site_crawled = False
+    async def mock_fetch(url: str) -> str:
+        nonlocal site_crawled
+        site_crawled = True
+        return "<html></html>"
+
+    gh_ran = False
+    class MockGH(Source):
+        name = "greenhouse"
+        source_family = "job_ats"
+        def run(self, job: DiscoveryJob):
+            nonlocal gh_ran
+            gh_ran = True
+            return []
+
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "companies": [{"index": 0, "status": "accepted", "id": "c-0"}],
+                "jobs": [],
+            },
+        )
+    )
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client(transport=transport))
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[CancellingCandidateSource(), MockGH()],
+        worker_id="test-worker-cancel-staged",
+        site_fetcher=mock_fetch,
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+    assert site_crawled is False
+    assert gh_ran is False
+
+

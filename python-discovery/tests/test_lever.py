@@ -165,3 +165,25 @@ class TestLeverSource:
         assert len(fetched_urls) == 2
         all_jobs = [j for b in batches for j in b.jobs]
         assert len(all_jobs) == 2
+
+    @pytest.mark.asyncio
+    async def test_accepts_dynamically_discovered_site_tokens(
+        self, sample_job: DiscoveryJob
+    ) -> None:
+        fetched_urls = []
+
+        async def mock_fetch(url: str) -> str:
+            fetched_urls.append(url)
+            return "[]"
+
+        source = LeverSource(site="initial-site", fetcher=mock_fetch)
+        source.add_site(site="dynamic-site", company_name="Dynamic Corp", company_domain="dynamic.co")
+        # Duplicate site token should be ignored
+        source.add_site(site="dynamic-site", company_name="Dynamic Corp Again")
+        source.add_site(site="initial-site")
+
+        batches = [b async for b in source.run(sample_job)]
+        assert any("initial-site" in u for u in fetched_urls)
+        assert any("dynamic-site" in u for u in fetched_urls)
+        assert len(fetched_urls) == 2
+

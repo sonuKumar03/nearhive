@@ -172,3 +172,26 @@ class TestGreenhouseSource:
         assert len(fetched_urls) == 2
         all_jobs = [j for b in batches for j in b.jobs]
         assert len(all_jobs) == 2
+
+    @pytest.mark.asyncio
+    async def test_accepts_dynamically_discovered_board_tokens(
+        self, sample_job: DiscoveryJob
+    ) -> None:
+        fetched_urls = []
+
+        async def mock_fetch(url: str) -> str:
+            fetched_urls.append(url)
+            return json.dumps({"jobs": []})
+
+        source = GreenhouseSource(board_token="initial", fetcher=mock_fetch)
+        source.add_board(board_token="dynamic1", company_name="Dynamic 1", company_domain="dyn1.com")
+        # Duplicate token should be ignored
+        source.add_board(board_token="dynamic1", company_name="Dynamic 1 Again")
+        source.add_board(board_token="initial")
+
+        batches = [b async for b in source.run(sample_job)]
+        # Should have fetched both 'initial' and 'dynamic1' once
+        assert any("initial" in u for u in fetched_urls)
+        assert any("dynamic1" in u for u in fetched_urls)
+        assert len(fetched_urls) == 2
+

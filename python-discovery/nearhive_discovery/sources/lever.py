@@ -68,6 +68,24 @@ class LeverSource(BaseSourceAdapter):
         else:
             self.sites = []
 
+    def add_site(
+        self,
+        site: str,
+        company_name: str | None = None,
+        company_domain: str | None = None,
+    ) -> None:
+        token = site.strip()
+        if not token:
+            return
+        if not any(s.get("site") == token for s in self.sites):
+            self.sites.append(
+                {
+                    "site": token,
+                    "company_name": company_name or token,
+                    "company_domain": company_domain,
+                }
+            )
+
     async def _fetch(self, url: str) -> str:
         if self.fetcher is not None:
             return await self.fetcher(url)

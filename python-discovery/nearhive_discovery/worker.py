@@ -27,6 +27,9 @@ from nearhive_discovery.queue import (
     record_source_run,
 )
 from nearhive_discovery.settings import settings
+from nearhive_discovery.sources.company_site import CompanySiteSource, _clean_domain
+from nearhive_discovery.sources.greenhouse import GreenhouseSource
+from nearhive_discovery.sources.lever import LeverSource
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,8 @@ class Worker:
         poll_interval_seconds: float = settings.poll_interval_seconds,
         playwright_contexts: int = settings.playwright_contexts,
         playwright_pool: Any | None = None,
+        max_company_sites: int = settings.max_company_sites,
+        site_fetcher: Any | None = None,
     ) -> None:
         self.db_url = db_url
         self.client = client if client is not None else IngestionClient(
@@ -70,6 +75,8 @@ class Worker:
             if playwright_pool is not None
             else PlaywrightPool(max_contexts=playwright_contexts)
         )
+        self.max_company_sites = max_company_sites
+        self.site_fetcher = site_fetcher
         self.sources: list[Source] = sources if sources is not None else []
         try:
             for s in self.sources:
@@ -130,116 +137,117 @@ class Worker:
         source_statuses: list[DiscoveryStatus] = []
         was_cancelled = False
         execution_error: str | None = None
-
         try:
-            for source in self.sources:
-                if lease_lost.is_set():
-                    logger.warning(
-                        "Lease lost for job %s; aborting before source %s",
-                        job.id,
-                        source.name,
-                    )
-                    execution_error = "Lease lost during execution"
-                    break
+            candidate_sources: list[Source] = []
+            configured_site_sources: list[Source] = []
+            configured_ats_sources: list[Source] = []
 
+            for s in self.sources:
+                fam = getattr(s, "source_family", "")
+                s_name = getattr(s, "name", "")
+                if fam == "official_site" or s_name == "company_site":
+                    configured_site_sources.append(s)
+                elif fam == "job_ats" or s_name in ("greenhouse", "lever"):
+                    configured_ats_sources.append(s)
+                else:
+                    candidate_sources.append(s)
+
+            discovered_domains: dict[str, str] = {}
+
+            def _collect_candidate_domains(batch: EvidenceBatch) -> None:
+                for c in batch.companies:
+                    if c.domain:
+                        cleaned = _clean_domain(c.domain)
+                        if cleaned and cleaned not in discovered_domains:
+                            discovered_domains[cleaned] = c.name or cleaned
+
+            def _run_single(source: Source) -> bool:
+                nonlocal total_companies, total_jobs, total_evidence, execution_error, was_cancelled
+                if lease_lost.is_set():
+                    execution_error = "Lease lost during execution"
+                    return False
                 if is_cancelled(conn, job.id):
-                    logger.info("Job %s cancelled; halting before source %s", job.id, source.name)
                     was_cancelled = True
                     self._close_contexts()
+                    return False
+
+                st, cc, jc, ec, err = self._run_source_helper(
+                    conn, job, source, lease_lost, on_batch=_collect_candidate_domains
+                )
+                total_companies += cc
+                total_jobs += jc
+                total_evidence += ec
+                source_statuses.append(st)
+
+                if lease_lost.is_set():
+                    execution_error = "Lease lost during execution"
+                    return False
+                if is_cancelled(conn, job.id):
+                    was_cancelled = True
+                    self._close_contexts()
+                    return False
+                return True
+
+            # Stage 1: Candidate Sources
+            for src in candidate_sources:
+                if not _run_single(src):
                     break
 
-                started_at = datetime.now(timezone.utc)
-                start_mono = time.monotonic()
-                source_comp_count = 0
-                source_job_count = 0
-                source_ev_count = 0
-                s_status = DiscoveryStatus.FAILED
-                s_error: str | None = None
-
-                try:
-                    raw_batches = source.run(job)
-                    batch_iter: Iterable[EvidenceBatch]
-                    if isinstance(raw_batches, EvidenceBatch):
-                        batch_iter = [raw_batches]
-                    elif inspect.isasyncgen(raw_batches) or isinstance(
-                        raw_batches, AsyncIterable
-                    ):
-                        async def _collect() -> list[EvidenceBatch]:
-                            collected = []
-                            async for b in raw_batches:
-                                collected.append(b)
-                            return collected
-
-                        try:
-                            loop = asyncio.get_running_loop()
-                        except RuntimeError:
-                            loop = None
-
-                        if loop is not None and loop.is_running():
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                                batch_iter = pool.submit(asyncio.run, _collect()).result()
-                        else:
-                            batch_iter = asyncio.run(_collect())
-                    elif isinstance(raw_batches, Iterable) and not isinstance(
-                        raw_batches, (str, bytes, dict)
-                    ):
-                        batch_iter = raw_batches
+            # Stage 2: Company Site Crawl
+            discovered_ats_targets: list[tuple[str, str, str | None, str | None]] = []
+            if not was_cancelled and not lease_lost.is_set() and not is_cancelled(conn, job.id):
+                selected_domains = list(discovered_domains.keys())[: self.max_company_sites]
+                if selected_domains or configured_site_sources:
+                    if configured_site_sources:
+                        site_source = configured_site_sources[0]
+                        for d in selected_domains:
+                            u = f"https://{d}"
+                            if hasattr(site_source, "target_urls") and u not in site_source.target_urls:
+                                site_source.target_urls.append(u)
+                        if hasattr(site_source, "target_company_names"):
+                            for d, n in discovered_domains.items():
+                                site_source.target_company_names.setdefault(d, n)
                     else:
-                        batch_iter = []
+                        site_source = CompanySiteSource(
+                            target_urls=[f"https://{d}" for d in selected_domains],
+                            target_company_names=discovered_domains,
+                            fetcher=self.site_fetcher,
+                            playwright_pool=self.playwright_pool,
+                        )
 
-                    for batch in batch_iter:
-                        if lease_lost.is_set():
-                            raise RuntimeError("Lease lost during batch submission")
-                        if not isinstance(batch, EvidenceBatch):
-                            continue
-                        result = self.client.submit(batch)
-                        source_comp_count += result.accepted_companies
-                        source_job_count += result.accepted_jobs
-                        source_ev_count += result.total_accepted
+                    if getattr(site_source, "target_urls", None):
+                        _run_single(site_source)
+                        if hasattr(site_source, "discovered_ats_targets"):
+                            discovered_ats_targets.extend(site_source.discovered_ats_targets)
 
-                    s_status = DiscoveryStatus.COMPLETED
-                except Exception as exc:
-                    logger.exception("Error running source %s for job %s: %s", source.name, job.id, exc)
-                    s_status = DiscoveryStatus.FAILED
-                    s_error = str(exc)
-                finally:
-                    duration_ms = int((time.monotonic() - start_mono) * 1000)
-                    run_record = DiscoverySourceRun(
-                        id=uuid.uuid4(),
-                        discovery_job_id=job.id,
-                        source=source.name,
-                        source_family=source.source_family,
-                        status=s_status,
-                        attempts=1,
-                        company_count=source_comp_count,
-                        job_count=source_job_count,
-                        evidence_count=source_ev_count,
-                        error=s_error,
-                        duration_ms=duration_ms,
-                        started_at=started_at,
-                        finished_at=datetime.now(timezone.utc),
-                    )
-                    record_source_run(conn, run_record)
+            # Stage 3: ATS Adapters
+            if not was_cancelled and not lease_lost.is_set() and not is_cancelled(conn, job.id):
+                gh_source = next((s for s in configured_ats_sources if getattr(s, "name", "") == "greenhouse"), None)
+                lever_source = next((s for s in configured_ats_sources if getattr(s, "name", "") == "lever"), None)
 
-                    total_companies += source_comp_count
-                    total_jobs += source_job_count
-                    total_evidence += source_ev_count
-                    source_statuses.append(s_status)
+                for target in discovered_ats_targets:
+                    provider, token, comp_name, comp_domain = target
+                    if provider == "greenhouse":
+                        if gh_source is None:
+                            gh_source = GreenhouseSource(fetcher=self.site_fetcher)
+                            configured_ats_sources.append(gh_source)
+                        if hasattr(gh_source, "add_board"):
+                            gh_source.add_board(token, comp_name, comp_domain)
+                    elif provider == "lever":
+                        if lever_source is None:
+                            lever_source = LeverSource(fetcher=self.site_fetcher)
+                            configured_ats_sources.append(lever_source)
+                        if hasattr(lever_source, "add_site"):
+                            lever_source.add_site(token, comp_name, comp_domain)
 
-                if lease_lost.is_set():
-                    logger.warning(
-                        "Lease lost for job %s; aborting after source %s",
-                        job.id,
-                        source.name,
-                    )
-                    execution_error = "Lease lost during execution"
-                    break
-
-                if is_cancelled(conn, job.id):
-                    logger.info("Job %s cancelled after source %s", job.id, source.name)
-                    was_cancelled = True
-                    self._close_contexts()
-                    break
+                for ats_s in configured_ats_sources:
+                    if was_cancelled or lease_lost.is_set() or is_cancelled(conn, job.id):
+                        break
+                    if getattr(ats_s, "name", "") == "greenhouse" and hasattr(ats_s, "boards") and not ats_s.boards:
+                        continue
+                    if getattr(ats_s, "name", "") == "lever" and hasattr(ats_s, "sites") and not ats_s.sites:
+                        continue
+                    _run_single(ats_s)
 
         except Exception as exc:
             logger.exception("Fatal error processing job %s: %s", job.id, exc)
@@ -274,6 +282,100 @@ class Worker:
                 evidence_count=total_evidence,
             )
             logger.info("Job %s finalized with status %s (updated=%s)", job.id, final_status, updated)
+
+    def _run_source_helper(
+        self,
+        conn: Any,
+        job: DiscoveryJob,
+        source: Source,
+        lease_lost: threading.Event,
+        on_batch: Callable[[EvidenceBatch], None] | None = None,
+    ) -> tuple[DiscoveryStatus, int, int, int, str | None]:
+        started_at = datetime.now(timezone.utc)
+        start_mono = time.monotonic()
+        source_comp_count = 0
+        source_job_count = 0
+        source_ev_count = 0
+        s_status = DiscoveryStatus.FAILED
+        s_error: str | None = None
+
+        try:
+            raw_batches = source.run(job)
+
+            if inspect.isasyncgen(raw_batches) or isinstance(raw_batches, AsyncIterable):
+                async def _consume_async() -> None:
+                    nonlocal source_comp_count, source_job_count, source_ev_count
+                    async for batch in raw_batches:
+                        if lease_lost.is_set():
+                            raise RuntimeError("Lease lost during batch submission")
+                        if not isinstance(batch, EvidenceBatch):
+                            continue
+                        if on_batch is not None:
+                            on_batch(batch)
+                        result = self.client.submit(batch)
+                        source_comp_count += result.accepted_companies
+                        source_job_count += result.accepted_jobs
+                        source_ev_count += result.total_accepted
+
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop is not None and loop.is_running():
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        pool.submit(asyncio.run, _consume_async()).result()
+                else:
+                    asyncio.run(_consume_async())
+
+            elif isinstance(raw_batches, EvidenceBatch):
+                if lease_lost.is_set():
+                    raise RuntimeError("Lease lost during batch submission")
+                if on_batch is not None:
+                    on_batch(raw_batches)
+                result = self.client.submit(raw_batches)
+                source_comp_count += result.accepted_companies
+                source_job_count += result.accepted_jobs
+                source_ev_count += result.total_accepted
+
+            elif isinstance(raw_batches, Iterable) and not isinstance(raw_batches, (str, bytes, dict)):
+                for batch in raw_batches:
+                    if lease_lost.is_set():
+                        raise RuntimeError("Lease lost during batch submission")
+                    if not isinstance(batch, EvidenceBatch):
+                        continue
+                    if on_batch is not None:
+                        on_batch(batch)
+                    result = self.client.submit(batch)
+                    source_comp_count += result.accepted_companies
+                    source_job_count += result.accepted_jobs
+                    source_ev_count += result.total_accepted
+
+            s_status = DiscoveryStatus.COMPLETED
+        except Exception as exc:
+            logger.exception("Error running source %s for job %s: %s", source.name, job.id, exc)
+            s_status = DiscoveryStatus.FAILED
+            s_error = str(exc)
+        finally:
+            duration_ms = int((time.monotonic() - start_mono) * 1000)
+            run_record = DiscoverySourceRun(
+                id=uuid.uuid4(),
+                discovery_job_id=job.id,
+                source=source.name,
+                source_family=source.source_family,
+                status=s_status,
+                attempts=1,
+                company_count=source_comp_count,
+                job_count=source_job_count,
+                evidence_count=source_ev_count,
+                error=s_error,
+                duration_ms=duration_ms,
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+            )
+            record_source_run(conn, run_record)
+
+        return s_status, source_comp_count, source_job_count, source_ev_count, s_error
 
     def _close_contexts(self) -> None:
         """Closes active Playwright contexts on job cancellation."""

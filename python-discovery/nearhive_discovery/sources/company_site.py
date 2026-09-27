@@ -103,6 +103,43 @@ def is_allowed_site_url(url: str, target_domain: str) -> bool:
         return False
 
 
+def extract_greenhouse_token(url: str) -> str | None:
+    """Extracts board token from canonical Greenhouse job board URLs."""
+    try:
+        parsed = urllib.parse.urlsplit(url.strip())
+        host = (parsed.hostname or "").lower()
+        if host in ("boards.greenhouse.io", "job-boards.greenhouse.io"):
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "for" in qs and qs["for"]:
+                token = qs["for"][0].strip()
+                if re.match(r"^[a-zA-Z0-9_\-]+$", token):
+                    return token
+            parts = [p for p in parsed.path.split("/") if p and p not in ("embed", "job_board", "jobs")]
+            if parts:
+                token = parts[0].strip()
+                if re.match(r"^[a-zA-Z0-9_\-]+$", token):
+                    return token
+    except Exception:
+        pass
+    return None
+
+
+def extract_lever_token(url: str) -> str | None:
+    """Extracts company site token from canonical Lever job URLs."""
+    try:
+        parsed = urllib.parse.urlsplit(url.strip())
+        host = (parsed.hostname or "").lower()
+        if host == "jobs.lever.co":
+            parts = [p for p in parsed.path.split("/") if p]
+            if parts:
+                token = parts[0].strip()
+                if re.match(r"^[a-zA-Z0-9_\-]+$", token):
+                    return token
+    except Exception:
+        pass
+    return None
+
+
 class CompanySiteSource(BaseSourceAdapter):
     """Source adapter for bounded enrichment of official company websites."""
 
@@ -112,6 +149,7 @@ class CompanySiteSource(BaseSourceAdapter):
         self,
         target_url: str | None = None,
         target_urls: list[str] | None = None,
+        target_company_names: dict[str, str] | None = None,
         sitemap_url: str | None = None,
         max_pages: int = 10,
         max_depth: int = 2,
@@ -128,6 +166,8 @@ class CompanySiteSource(BaseSourceAdapter):
         elif target_url:
             self.target_urls.append(target_url)
 
+        self.target_company_names: dict[str, str] = dict(target_company_names or {})
+        self.discovered_ats_targets: list[tuple[str, str, str | None, str | None]] = []
         self.sitemap_url = sitemap_url
         self.max_pages = max_pages
         self.max_depth = max_depth
@@ -278,6 +318,10 @@ class CompanySiteSource(BaseSourceAdapter):
                             )
 
                 # 3. Discover next links if below depth ceiling and page limit
+                title = sel.xpath("//title/text()").get() or ""
+                clean_name = title.split("-")[0].split("|")[0].strip()
+                company_name = self.target_company_names.get(target_domain) or clean_name or None
+
                 if depth < self.max_depth and len(visited_urls) < self.max_pages:
                     discovered_links = sel.xpath("//a/@href").getall()
                     for raw_link in discovered_links:
@@ -287,6 +331,27 @@ class CompanySiteSource(BaseSourceAdapter):
                         resolved = urllib.parse.urljoin(current_url, clean_link)
                         # Remove fragment
                         resolved = urllib.parse.urldefrag(resolved).url
+
+                        # Check for canonical ATS targets
+                        gh_token = extract_greenhouse_token(resolved)
+                        if gh_token:
+                            try:
+                                validate_public_url(resolved, resolve_dns=False)
+                                tup = ("greenhouse", gh_token, company_name, target_domain)
+                                if tup not in self.discovered_ats_targets:
+                                    self.discovered_ats_targets.append(tup)
+                            except Exception:
+                                pass
+
+                        lever_token = extract_lever_token(resolved)
+                        if lever_token:
+                            try:
+                                validate_public_url(resolved, resolve_dns=False)
+                                tup = ("lever", lever_token, company_name, target_domain)
+                                if tup not in self.discovered_ats_targets:
+                                    self.discovered_ats_targets.append(tup)
+                            except Exception:
+                                pass
 
                         if resolved not in enqueued_urls and resolved not in visited_urls:
                             if is_allowed_site_url(resolved, target_domain):

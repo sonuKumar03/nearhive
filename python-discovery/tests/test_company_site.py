@@ -337,3 +337,40 @@ class TestCompanySiteBoundary:
         assert "Hello World" in content
         assert mock_client.get.call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_discovers_greenhouse_and_lever_ats_targets(
+        self, sample_job: DiscoveryJob
+    ) -> None:
+        html = """
+        <html>
+            <head><title>Acme Corp | Careers</title></head>
+            <body>
+                <a href="https://boards.greenhouse.io/acmejobs">Greenhouse Careers</a>
+                <a href="https://jobs.lever.co/acme-site">Lever Jobs</a>
+                <a href="https://evil.internal.example.com/jobs">Internal</a>
+                <a href="https://other.com/about">Unrelated External</a>
+            </body>
+        </html>
+        """
+
+        async def mock_fetch(url: str) -> str:
+            return html
+
+        source = CompanySiteSource(
+            target_url="https://acme.example.com",
+            max_pages=2,
+            max_depth=1,
+            fetcher=mock_fetch,
+        )
+
+        batches = []
+        async for batch in source.run(sample_job):
+            batches.append(batch)
+
+        assert hasattr(source, "discovered_ats_targets")
+        targets = source.discovered_ats_targets
+        assert ("greenhouse", "acmejobs", "Acme Corp", "acme.example.com") in targets
+        assert ("lever", "acme-site", "Acme Corp", "acme.example.com") in targets
+        assert len(targets) == 2
+
+

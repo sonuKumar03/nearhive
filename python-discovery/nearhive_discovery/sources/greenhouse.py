@@ -66,6 +66,24 @@ class GreenhouseSource(BaseSourceAdapter):
         else:
             self.boards = []
 
+    def add_board(
+        self,
+        board_token: str,
+        company_name: str | None = None,
+        company_domain: str | None = None,
+    ) -> None:
+        token = board_token.strip()
+        if not token:
+            return
+        if not any(b.get("board_token") == token for b in self.boards):
+            self.boards.append(
+                {
+                    "board_token": token,
+                    "company_name": company_name or token,
+                    "company_domain": company_domain,
+                }
+            )
+
     async def _fetch(self, url: str) -> str:
         if self.fetcher is not None:
             return await self.fetcher(url)

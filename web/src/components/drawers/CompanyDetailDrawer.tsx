@@ -82,6 +82,7 @@ function formatDate(dateStr?: string | null): string {
 }
 
 function isPostedWithin14Days(job: TechnicalJobPosting): boolean {
+  if (job.publication_state === 'stale') return false;
   if (job.publication_state === 'posted_recently') return true;
   if (!job.posted_at) return false;
   try {
@@ -297,8 +298,17 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
                         {arrangement.text}
                       </span>
 
-                      {/* Recency label distinguishing Posted within 14 days vs Recently observed */}
-                      {isPostedRecent ? (
+                      {/* Recency label distinguishing Posted within 14 days vs Recently observed vs Stale */}
+                      {job.publication_state === 'stale' ? (
+                        <span
+                          role="status"
+                          aria-label="Stale job posting"
+                          className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1"
+                        >
+                          <Clock className="w-2.5 h-2.5" />
+                          <span>Stale</span>
+                        </span>
+                      ) : isPostedRecent ? (
                         <span
                           role="status"
                           aria-label="Posted within 14 days"
@@ -309,7 +319,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
                             Posted within 14 days{postedFormatted ? ` (${postedFormatted})` : ''}
                           </span>
                         </span>
-                      ) : job.publication_state === 'observed_recently' || !job.posted_at ? (
+                      ) : (
                         <span
                           role="status"
                           aria-label="Recently observed"
@@ -319,15 +329,6 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
                           <span>
                             Recently observed{observedFormatted ? ` (${observedFormatted})` : ''}
                           </span>
-                        </span>
-                      ) : (
-                        <span
-                          role="status"
-                          aria-label="Stale job posting"
-                          className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1"
-                        >
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>Stale</span>
                         </span>
                       )}
 

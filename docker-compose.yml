@@ -39,22 +39,6 @@ services:
       LOG_LEVEL: info
     restart: unless-stopped
 
-  crawler:
-    build:
-      context: .
-      dockerfile: Dockerfile.crawler
-    container_name: nearhive-crawler
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
-      JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
-      CRAWLER_CONCURRENCY: 3
-      ENVIRONMENT: development
-      LOG_LEVEL: info
-    restart: unless-stopped
-
   python-discovery:
     build:
       context: ./python-discovery
@@ -70,6 +54,10 @@ services:
       NEARHIVE_API_URL: http://app:8080
       NEARHIVE_WORKER_TOKEN: dev-worker-token
       DISCOVERY_WORKER_TOKEN: dev-worker-token
+      NEARHIVE_MAX_COMPANY_SITES: 50
+      NEARHIVE_MAX_JOB_GEOCODES: 50
+      NEARHIVE_GEOCODER_URL: https://nominatim.openstreetmap.org/search
+      NEARHIVE_GEOCODER_PROVIDER: nominatim
       LOG_LEVEL: info
     volumes:
       - ./config:/app/config:ro

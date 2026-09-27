@@ -13,6 +13,7 @@ import pytest
 from nearhive_discovery.client import IngestionClient
 from nearhive_discovery.contracts import DiscoveryJob, DiscoveryStatus
 from nearhive_discovery.http import PlaywrightPool
+from nearhive_discovery.location import LocationResolver
 from nearhive_discovery.sources.company_site import CompanySiteSource
 from nearhive_discovery.sources.configured_directory import ConfiguredDirectorySource
 from nearhive_discovery.sources.greenhouse import GreenhouseSource
@@ -52,7 +53,8 @@ def api_base_url() -> Generator[str, None, None]:
                 json={"contract_version": 1, "discovery_job_id": str(uuid.uuid4()), "source": "t", "source_family": "t", "observed_at": "2026-09-27T00:00:00Z", "companies": [], "jobs": []},
                 timeout=1.0,
             )
-            if batch_check.status_code == 200:
+            jobs_check = httpx.get(f"{candidate_url}/api/v1/search/jobs", timeout=1.0)
+            if batch_check.status_code == 200 and jobs_check.status_code == 401:
                 is_live = True
     except Exception:
         is_live = False
@@ -226,12 +228,19 @@ def test_end_to_end_discovery_stack(
             worker_token=DEFAULT_WORKER_TOKEN,
         )
 
+        geo_client = httpx.AsyncClient()
+        resolver = LocationResolver(
+            http_client=geo_client,
+            base_url=f"{fake_site.base_url}/geocoder",
+        )
+
         worker = Worker(
             db_url=DEFAULT_DATABASE_URL,
             client=ingestion_client,
             sources=sources,
             worker_id="test-e2e-worker",
             playwright_pool=playwright_pool,
+            location_resolver=resolver,
         )
 
         try:
@@ -321,3 +330,30 @@ def test_end_to_end_discovery_stack(
             f"Unexpected publication_state: {job.get('publication_state')}"
         )
         assert job.get("technical_classification") != "", "Job technical classification should not be empty"
+
+        # 9. Verify spatial job search via GET /api/v1/search/jobs
+        search_jobs_resp = httpx.get(
+            f"{api_base_url}/api/v1/search/jobs?lat={bangalore_lat}&lng={bangalore_lng}&radius=15",
+            headers=test_auth,
+            timeout=5.0,
+        )
+        assert search_jobs_resp.status_code == 200, f"Search jobs failed: {search_jobs_resp.text}"
+        search_jobs_data = search_jobs_resp.json()
+        spatial_jobs = search_jobs_data.get("jobs", [])
+        assert len(spatial_jobs) >= 1, f"Expected spatial jobs in search: {search_jobs_data}"
+
+        job_titles = [j["title"] for j in spatial_jobs]
+        assert "Principal Infrastructure Architect" in job_titles, (
+            f"Recent local technical job missing from spatial search: {job_titles}"
+        )
+        assert "Legacy Systems Programmer" not in job_titles, (
+            f"Stale job should NOT be in spatial search: {job_titles}"
+        )
+        assert "Remote Cloud Developer" not in job_titles, (
+            f"Remote job should NOT be in spatial search: {job_titles}"
+        )
+
+        matched_job = next(j for j in spatial_jobs if j["title"] == "Principal Infrastructure Architect")
+        assert matched_job["distance_meters"] <= 15000, "Job distance should be within 15km"
+        assert matched_job["work_arrangement"] in ("in_office", "hybrid")
+        assert matched_job["company_name"] == "Apex Innovations"

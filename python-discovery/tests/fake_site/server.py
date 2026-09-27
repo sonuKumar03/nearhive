@@ -202,11 +202,45 @@ class FakeSiteHandler(BaseHTTPRequestHandler):
                         "updated_at": now_iso,
                         "absolute_url": f"http://127.0.0.1:{port}/jobs/8801",
                         "location": {"name": "Bangalore, India"},
+                        "workplace_type": "Onsite",
                         "departments": [{"name": "Platform Engineering"}],
                         "content": "<p>Architect next-generation distributed systems in Go and Rust.</p>",
-                    }
+                    },
+                    {
+                        "id": 8802,
+                        "title": "Legacy Systems Programmer",
+                        "updated_at": "2020-01-01T00:00:00Z",
+                        "absolute_url": f"http://127.0.0.1:{port}/jobs/8802",
+                        "location": {"name": "Bangalore, India"},
+                        "departments": [{"name": "Legacy"}],
+                        "content": "<p>Maintain legacy COBOL and C++ systems.</p>",
+                    },
+                    {
+                        "id": 8803,
+                        "title": "Remote Cloud Developer",
+                        "updated_at": now_iso,
+                        "absolute_url": f"http://127.0.0.1:{port}/jobs/8803",
+                        "location": {"name": "Remote, India"},
+                        "departments": [{"name": "Cloud"}],
+                        "content": "<p>Go and Python microservices, fully remote work from anywhere.</p>",
+                    },
                 ]
             }
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+            return
+
+        # 6b. Fake Geocoder endpoint
+        if path.startswith("/geocoder"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            data = [
+                {
+                    "lat": "12.9716",
+                    "lon": "77.5946",
+                    "display_name": "Bangalore, Karnataka, India",
+                }
+            ]
             self.wfile.write(json.dumps(data).encode("utf-8"))
             return
 

@@ -147,6 +147,7 @@ To protect third-party services and guarantee deterministic CI execution:
 - `POST /api/v1/discovery/jobs/:id/cancel` — Cancel an in-progress discovery job
 - `POST /api/v1/internal/discovery/batches` — Worker evidence batch ingestion endpoint
 - `GET /api/v1/search?lat=12.9716&lng=77.5946&radius=15` — Find companies within radius (km) with presence types
+- `GET /api/v1/search/jobs?lat=12.9716&lng=77.5946&radius=15` — Find nearby active technical jobs within radius (km)
 - `GET /api/v1/companies/:id` — Detailed company profile & verified branch locations
 - `GET /api/v1/companies/:id/sightings` — Raw scrape sightings audit trail
 - `GET /api/v1/companies/:id/technical-jobs` — Active and recent technical job postings
@@ -155,13 +156,52 @@ To protect third-party services and guarantee deterministic CI execution:
 
 ## Deployment
 
-### Railway (Recommended)
+### Go Backend API (Railway)
 
 1. Connect your repository to Railway.
-2. Add the **PostgreSQL** service in Railway.
-3. PostGIS is enabled automatically when running migrations.
-4. Set required environment variables: `JWT_SECRET`, `PORT=8080`.
-5. Deploy using the included `Dockerfile` and `railway.toml`.
+2. Add the **PostgreSQL** service in Railway (PostGIS is enabled automatically by migrations).
+3. Set environment variables on the Go service:
+   - `PORT`: `8080`
+   - `JWT_SECRET`: 32+ character random secret
+   - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}`
+   - `DISCOVERY_WORKER_TOKEN`: random worker secret token
+4. Deploy using the root `Dockerfile` and `railway.toml`.
+
+### Python Discovery Worker (Railway or Render)
+
+The discovery worker runs as a separate background daemon that claims jobs from PostgreSQL and submits batches to the Go API.
+
+#### Option A: Railway (Co-located with Go API)
+1. In your existing Railway project, click **New** -> **GitHub Repo** (select this repository).
+2. Under **Settings** -> **Build**:
+   - Set **DockerfilePath** to `python-discovery/Dockerfile`.
+   - Set **Root Directory** to `python-discovery` (or leave root with build context configured).
+3. Under **Variables**, add:
+   - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}` (same DB as Go service)
+   - `NEARHIVE_API_URL`: `http://${{nearhive-app.RAILWAY_PRIVATE_DOMAIN}}:8080` (or public URL)
+   - `NEARHIVE_WORKER_TOKEN`: `${{nearhive-app.DISCOVERY_WORKER_TOKEN}}`
+   - `NEARHIVE_MAX_COMPANY_SITES`: `50`
+   - `NEARHIVE_MAX_JOB_GEOCODES`: `50`
+   - `NEARHIVE_GEOCODER_URL`: `https://nominatim.openstreetmap.org/search`
+   - `NEARHIVE_GEOCODER_PROVIDER`: `nominatim`
+4. Set replica count to **1**. Scale horizontally only after lease queue monitoring justifies it.
+
+#### Option B: Render (Background Worker)
+1. In the Render Dashboard, create a **New** -> **Background Worker**.
+2. Connect your Git repository.
+3. Configure the service:
+   - **Environment**: Docker
+   - **Docker Context**: `python-discovery`
+   - **Dockerfile Path**: `Dockerfile`
+4. Under **Environment Variables**, set:
+   - `DATABASE_URL`: connection string from your PostgreSQL database (with PostGIS enabled)
+   - `NEARHIVE_API_URL`: public URL of your Go NearHive API (e.g. `https://nearhive-production.up.railway.app`)
+   - `NEARHIVE_WORKER_TOKEN`: matching `DISCOVERY_WORKER_TOKEN` configured on the Go API
+   - `NEARHIVE_MAX_COMPANY_SITES`: `50`
+   - `NEARHIVE_MAX_JOB_GEOCODES`: `50`
+   - `NEARHIVE_GEOCODER_URL`: `https://nominatim.openstreetmap.org/search`
+   - `NEARHIVE_GEOCODER_PROVIDER`: `nominatim`
+5. Deploy the worker. It will automatically claim pending discovery jobs.
 
 ## License
 

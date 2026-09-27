@@ -36,80 +36,104 @@ export interface JobRuntimeInfo {
 }
 
 /**
- * Calculate live runtime info for a background job based on timestamps and current time.
+ * Extract runtime info for a background job directly from backend-computed fields.
  */
 export function getJobRuntimeInfo(
   job: {
     status: string;
+    duration_text?: string;
+    duration_ms?: number;
+    elapsed_seconds?: number;
     started_at?: string;
     finished_at?: string;
     created_at?: string;
   },
-  now: number
+  now?: number
 ): JobRuntimeInfo {
   const isRunning = job.status === 'running';
   const isPending = job.status === 'pending';
   const isCompleted = job.status === 'completed' || job.status === 'done';
 
-  if (isRunning) {
-    const startTime = job.started_at
-      ? new Date(job.started_at).getTime()
-      : job.created_at
-      ? new Date(job.created_at).getTime()
-      : now;
-    const elapsedSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
-    const duration = formatDurationSeconds(elapsedSeconds);
-    return {
-      text: `Running for ${duration}`,
-      shortText: duration,
-      elapsedSeconds,
-      isRunning: true,
-      isPending: false,
-      isCompleted: false,
-    };
-  }
-
-  if (isPending) {
-    const startTime = job.created_at ? new Date(job.created_at).getTime() : now;
-    const elapsedSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
-    const duration = formatDurationSeconds(elapsedSeconds);
-    return {
-      text: `Queued for ${duration}`,
-      shortText: `queued ${duration}`,
-      elapsedSeconds,
-      isRunning: false,
-      isPending: true,
-      isCompleted: false,
-    };
-  }
-
-  if (job.finished_at) {
+  // Live client-side ticking for running/pending states if `now` is provided
+  if (isRunning && typeof now === 'number' && now > 0) {
     const startTime = job.started_at
       ? new Date(job.started_at).getTime()
       : job.created_at
       ? new Date(job.created_at).getTime()
       : 0;
-    const endTime = new Date(job.finished_at).getTime();
-    if (startTime > 0 && endTime >= startTime) {
-      const elapsedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+    if (startTime > 0) {
+      const elapsedSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
       const duration = formatDurationSeconds(elapsedSeconds);
       return {
-        text: `Took ${duration}`,
+        text: `Running for ${duration}`,
         shortText: duration,
         elapsedSeconds,
-        isRunning: false,
+        isRunning: true,
         isPending: false,
-        isCompleted: true,
+        isCompleted: false,
       };
     }
+  }
+
+  if (isPending && typeof now === 'number' && now > 0) {
+    const startTime = job.created_at ? new Date(job.created_at).getTime() : 0;
+    if (startTime > 0) {
+      const elapsedSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
+      const duration = formatDurationSeconds(elapsedSeconds);
+      return {
+        text: `Queued for ${duration}`,
+        shortText: `queued ${duration}`,
+        elapsedSeconds,
+        isRunning: false,
+        isPending: true,
+        isCompleted: false,
+      };
+    }
+  }
+
+  // Backend authoritative text and elapsed time
+  if (job.duration_text) {
+    const shortText = job.duration_text.replace(
+      /^(Running for|Queued for|Took|Failed after|Cancelled after|Partial after)\s+/,
+      ''
+    );
+    return {
+      text: job.duration_text,
+      shortText,
+      elapsedSeconds:
+        job.elapsed_seconds ?? (job.duration_ms ? Math.round(job.duration_ms / 1000) : 0),
+      isRunning,
+      isPending,
+      isCompleted,
+    };
+  }
+
+  // Fallback to backend duration_ms if duration_text is omitted
+  if (typeof job.duration_ms === 'number' && job.duration_ms >= 0) {
+    const duration = formatDurationMs(job.duration_ms);
+    let text = duration;
+    if (isRunning) text = `Running for ${duration}`;
+    else if (isPending) text = `Queued for ${duration}`;
+    else if (isCompleted) text = `Took ${duration}`;
+    else if (job.status === 'failed') text = `Failed after ${duration}`;
+    else if (job.status === 'cancelled') text = `Cancelled after ${duration}`;
+
+    return {
+      text,
+      shortText: duration,
+      elapsedSeconds: Math.round(job.duration_ms / 1000),
+      isRunning,
+      isPending,
+      isCompleted,
+    };
   }
 
   return {
     text: '',
     shortText: '',
     elapsedSeconds: 0,
-    isRunning: false,
-    isPending: false,
+    isRunning,
+    isPending,
     isCompleted,
   };
 }

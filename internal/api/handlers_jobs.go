@@ -98,6 +98,7 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// If queue is configured, the standalone crawler worker will dequeue and process it
 	if h.queue != nil {
+		job.ComputeRuntime()
 		JSON(w, http.StatusAccepted, job)
 		return
 	}
@@ -149,6 +150,7 @@ func (h *JobHandler) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
+	job.ComputeRuntime()
 	JSON(w, http.StatusAccepted, job)
 }
 
@@ -192,6 +194,7 @@ func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		_ = h.queue.NotifyCancel(r.Context(), id)
 	}
 
+	job.ComputeRuntime()
 	JSON(w, http.StatusOK, map[string]any{
 		"message": "job cancelled successfully",
 		"job":     job,

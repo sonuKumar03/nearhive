@@ -471,9 +471,12 @@ func (m *MockStore) GetJobByID(_ context.Context, id uuid.UUID) (*model.ScrapeJo
 	jobCopy.Tasks = []model.ScrapeTask{}
 	for _, t := range m.Tasks {
 		if t.JobID == id {
-			jobCopy.Tasks = append(jobCopy.Tasks, *t)
+			taskCopy := *t
+			taskCopy.ComputeRuntime()
+			jobCopy.Tasks = append(jobCopy.Tasks, taskCopy)
 		}
 	}
+	jobCopy.ComputeRuntime()
 	return &jobCopy, nil
 }
 
@@ -502,7 +505,9 @@ func (m *MockStore) GetTasksByJobID(_ context.Context, jobID uuid.UUID) ([]model
 	var res []model.ScrapeTask
 	for _, t := range m.Tasks {
 		if t.JobID == jobID {
-			res = append(res, *t)
+			taskCopy := *t
+			taskCopy.ComputeRuntime()
+			res = append(res, taskCopy)
 		}
 	}
 	return res, nil
@@ -513,7 +518,17 @@ func (m *MockStore) ListJobs(_ context.Context, _, _ int) ([]model.ScrapeJob, er
 	defer m.mu.RUnlock()
 	var res []model.ScrapeJob
 	for _, j := range m.Jobs {
-		res = append(res, *j)
+		jobCopy := *j
+		jobCopy.Tasks = []model.ScrapeTask{}
+		for _, t := range m.Tasks {
+			if t.JobID == j.ID {
+				taskCopy := *t
+				taskCopy.ComputeRuntime()
+				jobCopy.Tasks = append(jobCopy.Tasks, taskCopy)
+			}
+		}
+		jobCopy.ComputeRuntime()
+		res = append(res, jobCopy)
 	}
 	return res, nil
 }
@@ -593,9 +608,12 @@ func (m *MockStore) GetDiscoveryJob(_ context.Context, id uuid.UUID, userID uuid
 	jobCopy.SourceRuns = []model.DiscoverySourceRun{}
 	if runs, found := m.DiscoverySourceRuns[id]; found {
 		for _, r := range runs {
-			jobCopy.SourceRuns = append(jobCopy.SourceRuns, *r)
+			runCopy := *r
+			runCopy.ComputeRuntime()
+			jobCopy.SourceRuns = append(jobCopy.SourceRuns, runCopy)
 		}
 	}
+	jobCopy.ComputeRuntime()
 	return &jobCopy, nil
 }
 
@@ -617,9 +635,12 @@ func (m *MockStore) ListDiscoveryJobs(_ context.Context, userID uuid.UUID, limit
 			jobCopy.SourceRuns = []model.DiscoverySourceRun{}
 			if runs, found := m.DiscoverySourceRuns[j.ID]; found {
 				for _, r := range runs {
-					jobCopy.SourceRuns = append(jobCopy.SourceRuns, *r)
+					runCopy := *r
+					runCopy.ComputeRuntime()
+					jobCopy.SourceRuns = append(jobCopy.SourceRuns, runCopy)
 				}
 			}
+			jobCopy.ComputeRuntime()
 			all = append(all, jobCopy)
 		}
 	}
@@ -705,7 +726,9 @@ func (m *MockStore) GetDiscoverySourceRuns(_ context.Context, discoveryJobID uui
 
 	res := make([]model.DiscoverySourceRun, len(runs))
 	for i, r := range runs {
-		res[i] = *r
+		runCopy := *r
+		runCopy.ComputeRuntime()
+		res[i] = runCopy
 	}
 	return res, nil
 }

@@ -88,6 +88,8 @@ export interface ScrapeTask {
   sightings: number;
   error?: string;
   duration_ms: number;
+  elapsed_seconds?: number;
+  duration_text?: string;
   started_at?: string;
   finished_at?: string;
   created_at: string;
@@ -104,6 +106,9 @@ export interface ScrapeJob {
   worker_id?: string;
   sightings: number;
   error?: string;
+  duration_ms?: number;
+  elapsed_seconds?: number;
+  duration_text?: string;
   started_at?: string;
   finished_at?: string;
   created_at: string;
@@ -151,6 +156,8 @@ export interface DiscoverySourceRun {
   evidence_count: number;
   error?: string;
   duration_ms: number;
+  elapsed_seconds?: number;
+  duration_text?: string;
   started_at?: string;
   finished_at?: string;
   created_at: string;
@@ -173,6 +180,9 @@ export interface DiscoveryJob {
   company_count: number;
   job_count: number;
   evidence_count: number;
+  duration_ms?: number;
+  elapsed_seconds?: number;
+  duration_text?: string;
   started_at?: string;
   finished_at?: string;
   created_at: string;

@@ -94,16 +94,18 @@ type Sighting struct {
 
 
 type ScrapeTask struct {
-	ID         uuid.UUID  `db:"id" json:"id"`
-	JobID      uuid.UUID  `db:"job_id" json:"job_id"`
-	Source     string     `db:"source" json:"source"`
-	Status     string     `db:"status" json:"status"`
-	Sightings  int        `db:"sightings" json:"sightings"`
-	Error      *string    `db:"error" json:"error,omitempty"`
-	DurationMS int64      `db:"duration_ms" json:"duration_ms"`
-	StartedAt  *time.Time `db:"started_at" json:"started_at,omitempty"`
-	FinishedAt *time.Time `db:"finished_at" json:"finished_at,omitempty"`
-	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	ID             uuid.UUID  `db:"id" json:"id"`
+	JobID          uuid.UUID  `db:"job_id" json:"job_id"`
+	Source         string     `db:"source" json:"source"`
+	Status         string     `db:"status" json:"status"`
+	Sightings      int        `db:"sightings" json:"sightings"`
+	Error          *string    `db:"error" json:"error,omitempty"`
+	DurationMS     int64      `db:"duration_ms" json:"duration_ms"`
+	ElapsedSeconds int64      `db:"-" json:"elapsed_seconds"`
+	DurationText   string     `db:"-" json:"duration_text"`
+	StartedAt      *time.Time `db:"started_at" json:"started_at,omitempty"`
+	FinishedAt     *time.Time `db:"finished_at" json:"finished_at,omitempty"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
 }
 
 type ScrapeJob struct {
@@ -122,6 +124,9 @@ type ScrapeJob struct {
 	StartedAt       *time.Time   `db:"started_at" json:"started_at,omitempty"`
 	FinishedAt      *time.Time   `db:"finished_at" json:"finished_at,omitempty"`
 	CreatedAt       time.Time    `db:"created_at" json:"created_at"`
+	DurationMS      int64        `db:"-" json:"duration_ms"`
+	ElapsedSeconds  int64        `db:"-" json:"elapsed_seconds"`
+	DurationText    string       `db:"-" json:"duration_text"`
 	Tasks           []ScrapeTask `db:"-" json:"tasks,omitempty"`
 }
 
@@ -161,3 +166,107 @@ type SpatialCluster struct {
 	Lat       float64 `db:"lat" json:"lat"`
 	Lng       float64 `db:"lng" json:"lng"`
 }
+
+// ComputeRuntime populates DurationMS, ElapsedSeconds, and DurationText for ScrapeJob and its Tasks.
+func (j *ScrapeJob) ComputeRuntime() {
+	now := time.Now()
+	var d time.Duration
+
+	switch j.Status {
+	case "running":
+		if j.StartedAt != nil {
+			d = now.Sub(*j.StartedAt)
+		} else {
+			d = now.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Running for " + FormatDuration(d)
+
+	case "pending":
+		d = now.Sub(j.CreatedAt)
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Queued for " + FormatDuration(d)
+
+	case "done", "completed":
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = time.Since(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Took " + FormatDuration(d)
+
+	case "failed":
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = time.Since(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Failed after " + FormatDuration(d)
+
+	case "cancelled":
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = time.Since(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Cancelled after " + FormatDuration(d)
+
+	default:
+		d = now.Sub(j.CreatedAt)
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = FormatDuration(d)
+	}
+
+	for i := range j.Tasks {
+		j.Tasks[i].ComputeRuntime()
+	}
+}
+
+// ComputeRuntime populates DurationMS, ElapsedSeconds, and DurationText for ScrapeTask.
+func (t *ScrapeTask) ComputeRuntime() {
+	now := time.Now()
+	var d time.Duration
+	if t.DurationMS > 0 {
+		d = time.Duration(t.DurationMS) * time.Millisecond
+	} else if t.FinishedAt != nil && t.StartedAt != nil {
+		d = t.FinishedAt.Sub(*t.StartedAt)
+	} else if t.StartedAt != nil {
+		d = now.Sub(*t.StartedAt)
+	} else {
+		d = now.Sub(t.CreatedAt)
+	}
+
+	t.DurationMS = d.Milliseconds()
+	t.ElapsedSeconds = int64(d.Seconds())
+
+	switch t.Status {
+	case "running":
+		t.DurationText = "Running for " + FormatDuration(d)
+	case "pending":
+		t.DurationText = "Queued for " + FormatDuration(d)
+	case "done", "completed":
+		t.DurationText = "Took " + FormatDuration(d)
+	case "failed":
+		t.DurationText = "Failed after " + FormatDuration(d)
+	case "cancelled":
+		t.DurationText = "Cancelled after " + FormatDuration(d)
+	default:
+		t.DurationText = FormatDuration(d)
+	}
+}
+

@@ -1,34 +1,78 @@
 import { CompanySearchResult, PresenceType, WorkArrangement } from '@/types';
-import { Building2, MapPin, Users, Briefcase, CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react';
+import {
+  MapPin,
+  Users,
+  Briefcase,
+  CheckCircle2,
+  AlertCircle,
+  Navigation,
+  ChevronRight,
+} from 'lucide-react';
 
 interface CompanyCardProps {
   company: CompanySearchResult;
   onClick: () => void;
+  isSelected?: boolean;
 }
 
-function getPresenceBadge(presence?: PresenceType) {
-  switch (presence) {
-    case 'confirmed_office':
-      return {
-        label: 'Confirmed Office',
-        className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-        Icon: CheckCircle2,
-      };
-    case 'probable_office':
-      return {
-        label: 'Probable Office',
-        className: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-        Icon: AlertCircle,
-      };
-    case 'job_location_only':
-      return {
-        label: 'Job Location',
-        className: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
-        Icon: MapPin,
-      };
-    default:
-      return null;
+const AVATAR_PALETTES = [
+  'bg-blue-500/10 text-blue-400 border-blue-500/25',
+  'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+  'bg-purple-500/10 text-purple-400 border-purple-500/25',
+  'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  'bg-cyan-500/10 text-cyan-400 border-cyan-500/25',
+  'bg-rose-500/10 text-rose-400 border-rose-500/25',
+  'bg-indigo-500/10 text-indigo-400 border-indigo-500/25',
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
+  return AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length];
+}
+
+function getInitials(name: string): string {
+  if (!name) return 'CO';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function cleanAddress(raw?: string): string {
+  if (!raw || raw.trim() === '' || raw.toLowerCase() === 'address registered') {
+    return 'Registered office location';
+  }
+  return raw
+    .replace(/,\s*,+/g, ', ')
+    .replace(/\s+/g, ' ')
+    .replace(/^,\s*|,\s*$/g, '')
+    .trim();
+}
+
+function getPresenceBadge(presence?: PresenceType, confidencePercent: number = 60) {
+  if (presence === 'confirmed_office' || confidencePercent >= 80) {
+    return {
+      label: `Confirmed · ${confidencePercent}%`,
+      className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      Icon: CheckCircle2,
+    };
+  }
+  if (presence === 'job_location_only') {
+    return {
+      label: `Hiring · ${confidencePercent}%`,
+      className: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+      Icon: MapPin,
+    };
+  }
+  return {
+    label: `Probable · ${confidencePercent}%`,
+    className: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    Icon: AlertCircle,
+  };
 }
 
 function formatArrangement(arr: WorkArrangement): { text: string; ariaLabel: string } {
@@ -45,19 +89,18 @@ function formatArrangement(arr: WorkArrangement): { text: string; ariaLabel: str
   }
 }
 
-export default function CompanyCard({ company, onClick }: CompanyCardProps) {
+export default function CompanyCard({ company, onClick, isSelected = false }: CompanyCardProps) {
   const conf = Math.round(company.confidence * 100);
-  const confBadgeColor =
-    conf >= 80
-      ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-      : conf >= 60
-      ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
-      : 'text-slate-400 bg-slate-500/10 border-slate-500/30';
-
-  const distanceKm = (company.distance_meters / 1000).toFixed(1);
-  const presence = getPresenceBadge(company.presence_type);
+  const distanceKm =
+    typeof company.distance_meters === 'number' && !isNaN(company.distance_meters)
+      ? (company.distance_meters / 1000).toFixed(1)
+      : null;
+  const status = getPresenceBadge(company.presence_type, conf);
   const arrangements = company.arrangements || [];
   const techJobCount = company.recent_technical_job_count;
+  const initials = getInitials(company.name);
+  const avatarColor = getAvatarColor(company.name);
+  const displayAddress = cleanAddress(company.address);
 
   return (
     <div
@@ -70,45 +113,61 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
           onClick();
         }
       }}
-      aria-label={`${company.name}, ${distanceKm} km away, ${conf}% verified${
+      aria-label={`${company.name}, ${distanceKm ? `${distanceKm} km away, ` : ''}${conf}% verified${
         company.presence_type ? `, ${company.presence_type}` : ''
       }`}
-      className="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-850/80 focus:bg-slate-800/80 focus:outline-none focus:ring-1 focus:ring-amber-500/50 border border-slate-800/80 hover:border-amber-500/30 transition-all cursor-pointer group space-y-2"
+      className={`p-3.5 rounded-xl transition-all cursor-pointer group space-y-2.5 border ${
+        isSelected
+          ? 'bg-slate-850/95 border-amber-500/60 shadow-lg shadow-amber-500/5 ring-1 ring-amber-500/30'
+          : 'bg-slate-900/50 hover:bg-slate-850/80 border-slate-800/80 hover:border-slate-700/90 hover:shadow-md hover:shadow-black/25'
+      }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1">
-          <h4 className="font-semibold text-xs text-slate-100 group-hover:text-amber-300 transition-colors flex items-center gap-1.5">
-            <Building2 className="w-3.5 h-3.5 text-amber-400" />
-            {company.name}
-          </h4>
-          <div className="flex items-center gap-2 flex-wrap">
-            {company.industry && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                {company.industry}
-              </span>
-            )}
-            {company.employee_count && (
-              <span className="text-[10px] text-slate-300 font-mono flex items-center gap-1">
-                <Users className="w-3 h-3 text-slate-400" />
-                {company.employee_count}
-              </span>
-            )}
-          </div>
+      {/* Header: Monogram Avatar + Title + Status Pill */}
+      <div className="flex items-start gap-2.5">
+        <div
+          className={`w-8 h-8 rounded-lg border font-mono font-bold text-xs flex items-center justify-center shrink-0 tracking-wider ${avatarColor}`}
+          aria-hidden="true"
+        >
+          {initials}
         </div>
 
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${confBadgeColor}`}>
-            {conf}%
-          </span>
-          {presence && (
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-1.5">
+            <h4
+              className="font-semibold text-xs text-slate-100 group-hover:text-amber-300 transition-colors truncate leading-tight"
+              title={company.name}
+            >
+              {company.name}
+            </h4>
+
+            {/* Unified status pill */}
             <span
               role="status"
-              aria-label={`Presence: ${presence.label}`}
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full border flex items-center gap-1 ${presence.className}`}
+              className={`inline-flex items-center gap-1 text-[10px] font-medium font-mono px-2 py-0.5 rounded-full border shrink-0 ${status.className}`}
             >
-              <presence.Icon className="w-2.5 h-2.5" />
-              <span>{presence.label}</span>
+              <status.Icon className="w-2.5 h-2.5" />
+              <span>{status.label}</span>
             </span>
+          </div>
+
+          {/* Industry & Size */}
+          {(company.industry || company.employee_count) && (
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 flex-wrap">
+              {company.industry && (
+                <span className="truncate max-w-[170px] text-slate-300 font-medium">
+                  {company.industry}
+                </span>
+              )}
+              {company.industry && company.employee_count && (
+                <span className="text-slate-600">•</span>
+              )}
+              {company.employee_count && (
+                <span className="flex items-center gap-1 text-slate-400 font-mono">
+                  <Users className="w-2.5 h-2.5 text-slate-500" />
+                  {company.employee_count}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -120,9 +179,9 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
             <span
               role="status"
               aria-label={`${techJobCount} recent technical job${techJobCount === 1 ? '' : 's'}`}
-              className="flex items-center gap-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30"
+              className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/25"
             >
-              <Briefcase className="w-3 h-3 text-indigo-400" />
+              <Briefcase className="w-2.5 h-2.5 text-indigo-400" />
               <span>
                 {techJobCount} tech job{techJobCount === 1 ? '' : 's'}
               </span>
@@ -136,7 +195,7 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
                 key={arr}
                 role="status"
                 aria-label={info.ariaLabel}
-                className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300"
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/50 text-slate-300"
               >
                 {info.text}
               </span>
@@ -145,15 +204,24 @@ export default function CompanyCard({ company, onClick }: CompanyCardProps) {
         </div>
       )}
 
-      <p className="text-[11px] text-slate-300 leading-relaxed flex items-center gap-1.5">
-        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-        <span className="truncate">{company.address || 'Address registered'}</span>
+      {/* Address */}
+      <p
+        className="text-[11px] text-slate-400 leading-relaxed flex items-center gap-1.5"
+        title={displayAddress}
+      >
+        <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
+        <span className="truncate">{displayAddress}</span>
       </p>
 
-      <div className="flex items-center justify-between pt-1 border-t border-slate-800/50 text-[11px]">
-        <span className="text-slate-400 font-mono text-[10px]">{distanceKm} km away</span>
-        <span className="text-amber-400 group-hover:text-amber-300 font-medium text-[11px] flex items-center gap-1">
-          Details ›
+      {/* Footer: Distance & Details Action */}
+      <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60 text-[11px]">
+        <span className="text-slate-400 font-mono text-[10px] flex items-center gap-1">
+          <Navigation className="w-2.5 h-2.5 text-slate-500" />
+          {distanceKm ? `${distanceKm} km away` : 'Nearby'}
+        </span>
+        <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-slate-400 group-hover:text-amber-300 transition-colors">
+          <span>Details</span>
+          <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
         </span>
       </div>
     </div>

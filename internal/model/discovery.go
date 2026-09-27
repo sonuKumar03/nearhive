@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +65,9 @@ type DiscoveryJob struct {
 	FinishedAt      *time.Time           `db:"finished_at" json:"finished_at,omitempty"`
 	CreatedAt       time.Time            `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time            `db:"updated_at" json:"updated_at"`
+	DurationMS      int64                `db:"-" json:"duration_ms"`
+	ElapsedSeconds  int64                `db:"-" json:"elapsed_seconds"`
+	DurationText    string               `db:"-" json:"duration_text"`
 	SourceRuns      []DiscoverySourceRun `db:"-" json:"source_runs,omitempty"`
 }
 
@@ -79,6 +83,8 @@ type DiscoverySourceRun struct {
 	EvidenceCount  int             `db:"evidence_count" json:"evidence_count"`
 	Error          *string         `db:"error" json:"error,omitempty"`
 	DurationMS     int64           `db:"duration_ms" json:"duration_ms"`
+	ElapsedSeconds int64           `db:"-" json:"elapsed_seconds"`
+	DurationText   string          `db:"-" json:"duration_text"`
 	StartedAt      *time.Time      `db:"started_at" json:"started_at,omitempty"`
 	FinishedAt     *time.Time      `db:"finished_at" json:"finished_at,omitempty"`
 	CreatedAt      time.Time       `db:"created_at" json:"created_at"`
@@ -191,4 +197,148 @@ type TechnicalJobSearchResult struct {
 	LastSeenAt         time.Time        `db:"last_seen_at" json:"last_seen_at"`
 	Metadata           JSONMap          `db:"metadata" json:"metadata"`
 }
+
+// FormatDuration formats a duration into a human-readable string like "42s", "1m 15s", or "1h 5m 20s".
+func FormatDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSec := int64(d.Seconds())
+	if totalSec < 60 {
+		return fmt.Sprintf("%ds", totalSec)
+	}
+	m := totalSec / 60
+	s := totalSec % 60
+	if m < 60 {
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	h := m / 60
+	m = m % 60
+	if m == 0 && s == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	if s == 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dh %dm %ds", h, m, s)
+}
+
+// ComputeRuntime populates DurationMS, ElapsedSeconds, and DurationText for DiscoveryJob and its SourceRuns.
+func (j *DiscoveryJob) ComputeRuntime() {
+	now := time.Now()
+	var d time.Duration
+
+	switch j.Status {
+	case DiscoveryStatusRunning:
+		if j.StartedAt != nil {
+			d = now.Sub(*j.StartedAt)
+		} else {
+			d = now.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Running for " + FormatDuration(d)
+
+	case DiscoveryStatusPending:
+		d = now.Sub(j.CreatedAt)
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Queued for " + FormatDuration(d)
+
+	case DiscoveryStatusCompleted:
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = j.UpdatedAt.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Took " + FormatDuration(d)
+
+	case DiscoveryStatusPartial:
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = j.UpdatedAt.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Partial after " + FormatDuration(d)
+
+	case DiscoveryStatusFailed:
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = j.UpdatedAt.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Failed after " + FormatDuration(d)
+
+	case DiscoveryStatusCancelled:
+		if j.FinishedAt != nil && j.StartedAt != nil {
+			d = j.FinishedAt.Sub(*j.StartedAt)
+		} else if j.FinishedAt != nil {
+			d = j.FinishedAt.Sub(j.CreatedAt)
+		} else {
+			d = j.UpdatedAt.Sub(j.CreatedAt)
+		}
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = "Cancelled after " + FormatDuration(d)
+
+	default:
+		d = now.Sub(j.CreatedAt)
+		j.DurationMS = d.Milliseconds()
+		j.ElapsedSeconds = int64(d.Seconds())
+		j.DurationText = FormatDuration(d)
+	}
+
+	for i := range j.SourceRuns {
+		j.SourceRuns[i].ComputeRuntime()
+	}
+}
+
+// ComputeRuntime populates DurationMS, ElapsedSeconds, and DurationText for DiscoverySourceRun.
+func (r *DiscoverySourceRun) ComputeRuntime() {
+	now := time.Now()
+	var d time.Duration
+	if r.DurationMS > 0 {
+		d = time.Duration(r.DurationMS) * time.Millisecond
+	} else if r.FinishedAt != nil && r.StartedAt != nil {
+		d = r.FinishedAt.Sub(*r.StartedAt)
+	} else if r.StartedAt != nil {
+		d = now.Sub(*r.StartedAt)
+	} else {
+		d = now.Sub(r.CreatedAt)
+	}
+
+	r.DurationMS = d.Milliseconds()
+	r.ElapsedSeconds = int64(d.Seconds())
+
+	switch r.Status {
+	case DiscoveryStatusRunning:
+		r.DurationText = "Running for " + FormatDuration(d)
+	case DiscoveryStatusPending:
+		r.DurationText = "Queued for " + FormatDuration(d)
+	case DiscoveryStatusCompleted:
+		r.DurationText = "Took " + FormatDuration(d)
+	case DiscoveryStatusFailed:
+		r.DurationText = "Failed after " + FormatDuration(d)
+	case DiscoveryStatusCancelled:
+		r.DurationText = "Cancelled after " + FormatDuration(d)
+	default:
+		r.DurationText = FormatDuration(d)
+	}
+}
+
 

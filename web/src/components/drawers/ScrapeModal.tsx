@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTriggerScraper, useCancelScraper, useScrapeJobs } from '@/hooks/useScrapeJobs';
 import {
   useTriggerDiscovery,
@@ -15,6 +15,8 @@ import {
   ArrowDownRight,
   MapPin,
   Building,
+  Building2,
+  Check,
   Layers,
   Sparkles,
   ChevronDown,
@@ -62,6 +64,22 @@ export default function ScrapeModal({
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isDropdownOpen]);
+
   // Re-sync selection state whenever the modal is opened
   useEffect(() => {
     if (isOpen) {
@@ -74,6 +92,7 @@ export default function ScrapeModal({
       if (defaultMode) {
         setMode(defaultMode);
       }
+      setIsDropdownOpen(false);
       setErrorText(null);
       setSuccessNotice(null);
     }
@@ -216,6 +235,9 @@ export default function ScrapeModal({
     }
   }
 
+  const selectedCity =
+    CITY_PRESET_OPTIONS.find((c) => c.name === region) || CITY_PRESET_OPTIONS[0];
+
   return (
     <div
       role="dialog"
@@ -223,7 +245,7 @@ export default function ScrapeModal({
       aria-label="Company Discovery & Scraper Pipeline"
       className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
     >
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl md:max-w-3xl p-6 sm:p-7 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -250,68 +272,132 @@ export default function ScrapeModal({
             <button
               type="button"
               onClick={() => setMode('coordinates')}
-              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
                 mode === 'coordinates'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-900/40'
               }`}
             >
               <MapPin className="w-3.5 h-3.5" />
-              Current Map Location
+              <span>Current Map Location</span>
             </button>
             <button
               type="button"
               onClick={() => setMode('preset')}
-              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
                 mode === 'preset'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-900/40'
               }`}
             >
               <Building className="w-3.5 h-3.5" />
-              Preset Tech Hub
+              <span>Preset Tech Hub</span>
             </button>
           </div>
 
           {/* Location Controls & Primary Trigger */}
           <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
             {mode === 'coordinates' ? (
-              <div className="space-y-1 text-xs">
-                <span className="text-slate-400 font-semibold block text-[11px] uppercase tracking-wider">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-300">
                   Target Coordinates
-                </span>
-                {currentCenter ? (
-                  <div className="flex items-center justify-between font-mono text-slate-200 pt-0.5">
-                    <span>Lat: {currentCenter.lat.toFixed(4)}</span>
-                    <span>Lng: {currentCenter.lng.toFixed(4)}</span>
-                  </div>
-                ) : (
-                  <p className="text-slate-400">Map coordinates not detected.</p>
-                )}
+                </label>
+                <div className="w-full h-[38px] bg-slate-950 border border-slate-800 rounded-xl px-3 flex items-center justify-between text-xs font-mono text-slate-200 shadow-inner">
+                  {currentCenter ? (
+                    <span className="flex items-center gap-2">
+                      <span className="text-slate-400 font-sans">Lat:</span>
+                      <span className="text-amber-300">{currentCenter.lat.toFixed(4)}</span>
+                      <span className="text-slate-600">•</span>
+                      <span className="text-slate-400 font-sans">Lng:</span>
+                      <span className="text-amber-300">{currentCenter.lng.toFixed(4)}</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-sans text-xs">Coordinates not detected</span>
+                  )}
+                  <span className="text-[10px] text-slate-500 font-sans bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md">
+                    Active Map Center
+                  </span>
+                </div>
                 <p className="text-[10px] text-slate-400 pt-0.5">
                   Discovers tech companies and jobs centered around your active map location.
                 </p>
               </div>
             ) : (
-              <div>
+              <div className="space-y-1">
                 <label
-                  htmlFor="target-tech-hub-select"
-                  className="block text-xs font-semibold text-slate-300 mb-1"
+                  id="target-tech-hub-label"
+                  className="block text-xs font-semibold text-slate-300"
                 >
                   Target Tech Hub
                 </label>
-                <select
-                  id="target-tech-hub-select"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  {CITY_PRESET_OPTIONS.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
+                <div ref={dropdownRef} className="relative">
+                  <button
+                    id="target-tech-hub-select"
+                    type="button"
+                    role="combobox"
+                    aria-labelledby="target-tech-hub-label"
+                    aria-expanded={isDropdownOpen}
+                    aria-haspopup="listbox"
+                    onClick={() => setIsDropdownOpen((prev) => !prev)}
+                    className="w-full h-[38px] bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl px-3 text-xs text-slate-200 flex items-center justify-between focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/30 transition-all cursor-pointer shadow-inner"
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="font-semibold text-slate-100">{selectedCity.name}</span>
+                      <span className="text-[11px] text-slate-400 truncate hidden sm:inline">
+                        {selectedCity.label.replace(/^[^()]+\s*\(/, '(')}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-2 ${
+                        isDropdownOpen ? 'rotate-180 text-amber-400' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {isDropdownOpen && (
+                    <div
+                      role="listbox"
+                      aria-labelledby="target-tech-hub-label"
+                      className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-slate-900/95 border border-slate-700/90 rounded-xl shadow-2xl shadow-black/90 backdrop-blur-md p-1.5 space-y-0.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                    >
+                      {CITY_PRESET_OPTIONS.map((c) => {
+                        const isSelected = c.name === region;
+                        const subtext = c.label.replace(/^[^()]+\s*\(/, '(');
+                        return (
+                          <button
+                            key={c.name}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setRegion(c.name);
+                              setIsDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30'
+                                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/80 border border-transparent'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <span className="font-medium">{c.name}</span>
+                              <span className="text-[10px] text-slate-400 truncate">
+                                {subtext}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 ml-2" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 pt-0.5">
+                  Discovers tech companies and jobs within this recognized tech ecosystem.
+                </p>
               </div>
             )}
 
@@ -354,7 +440,7 @@ export default function ScrapeModal({
                 type="button"
                 onClick={handleStartAll}
                 disabled={triggerLegacyMutation.isPending || triggerDiscoveryMutation.isPending}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-md shadow-amber-500/20 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
                 title="Scrapes companies from OpenStreetMap & Wikidata within the selected radius"
               >
                 {triggerLegacyMutation.isPending ? (

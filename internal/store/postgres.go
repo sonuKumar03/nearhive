@@ -436,6 +436,7 @@ func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.Sc
 	if err == nil {
 		job.Tasks = tasks
 	}
+	job.ComputeRuntime()
 	return &job, nil
 }
 
@@ -452,6 +453,7 @@ func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]mode
 			tasks = []model.ScrapeTask{}
 		}
 		jobs[i].Tasks = tasks
+		jobs[i].ComputeRuntime()
 	}
 	return jobs, nil
 }
@@ -484,6 +486,9 @@ func (s *PostgresStore) GetTasksByJobID(ctx context.Context, jobID uuid.UUID) ([
 	}
 	if tasks == nil {
 		tasks = []model.ScrapeTask{}
+	}
+	for i := range tasks {
+		tasks[i].ComputeRuntime()
 	}
 	return tasks, nil
 }

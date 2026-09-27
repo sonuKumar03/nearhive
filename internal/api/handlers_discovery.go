@@ -117,7 +117,7 @@ func (h *DiscoveryHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "failed to create discovery job", "INTERNAL_ERROR", nil)
 		return
 	}
-
+	job.ComputeRuntime()
 	JSON(w, http.StatusCreated, job)
 }
 

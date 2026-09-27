@@ -414,6 +414,7 @@ export default function HomePage() {
             setSelectedCompany(c);
             if (isClusterMode) setIsClusterMode(false);
           }}
+          selectedCompany={selectedCompany}
         />
 
         {/* Map Canvas - responsive visibility */}

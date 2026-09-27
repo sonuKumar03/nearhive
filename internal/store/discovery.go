@@ -92,6 +92,7 @@ func (s *PostgresStore) GetDiscoveryJob(ctx context.Context, id uuid.UUID, userI
 		return nil, err
 	}
 	job.SourceRuns = runs
+	job.ComputeRuntime()
 
 	return &job, nil
 }
@@ -145,6 +146,7 @@ func (s *PostgresStore) ListDiscoveryJobs(ctx context.Context, userID uuid.UUID,
 			return nil, err
 		}
 		jobs[i].SourceRuns = runs
+		jobs[i].ComputeRuntime()
 	}
 
 	return jobs, nil
@@ -248,6 +250,9 @@ func (s *PostgresStore) GetDiscoverySourceRuns(ctx context.Context, discoveryJob
 	}
 	if runs == nil {
 		runs = []model.DiscoverySourceRun{}
+	}
+	for i := range runs {
+		runs[i].ComputeRuntime()
 	}
 	return runs, nil
 }

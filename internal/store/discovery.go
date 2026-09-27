@@ -591,3 +591,120 @@ func (s *PostgresStore) UpsertDiscoverySighting(ctx context.Context, sighting *m
 	return nil
 }
 
+func (s *PostgresStore) SearchTechnicalJobs(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error) {
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	var arrangementStr *string
+	if opts.WorkArrangement != nil {
+		str := string(*opts.WorkArrangement)
+		arrangementStr = &str
+	}
+
+	query := `
+		SELECT 
+			tj.id,
+			tj.company_id,
+			c.name AS company_name,
+			c.domain AS company_domain,
+			tj.title,
+			tj.normalized_title,
+			tj.description_excerpt,
+			tj.canonical_url,
+			tj.source,
+			tj.source_family,
+			tj.location_raw,
+			tj.lat,
+			tj.lng,
+			ST_Distance(
+				ST_SetSRID(ST_MakePoint(tj.lng, tj.lat), 4326)::geography,
+				ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+			) AS distance_m,
+			tj.work_arrangement,
+			tj.publication_state,
+			tj.posted_at,
+			tj.posted_at_confidence,
+			tj.first_seen_at,
+			tj.last_seen_at,
+			tj.metadata
+		FROM technical_job_postings tj
+		JOIN companies c ON c.id = tj.company_id
+		WHERE tj.is_active = TRUE
+		  AND tj.lat IS NOT NULL
+		  AND tj.lng IS NOT NULL
+		  AND tj.work_arrangement <> 'remote'
+		  AND tj.publication_state = 'posted_recently'
+		  AND tj.posted_at IS NOT NULL
+		  AND tj.posted_at >= NOW() - INTERVAL '14 days'
+		  AND tj.posted_at_confidence > 0
+		  AND ST_DWithin(
+			  ST_SetSRID(ST_MakePoint(tj.lng, tj.lat), 4326)::geography,
+			  ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+			  $3
+		  )
+		  AND ($4::text IS NULL OR tj.work_arrangement = $4)
+		  AND (
+			  $5::text IS NULL
+			  OR tj.title ILIKE '%' || $5 || '%'
+			  OR tj.normalized_title % $5
+			  OR c.name ILIKE '%' || $5 || '%'
+		  )
+		ORDER BY distance_m ASC, tj.posted_at DESC
+		LIMIT $6 OFFSET $7
+	`
+
+	var results []model.TechnicalJobSearchResult
+	err := s.db.SelectContext(ctx, &results, query, lng, lat, radiusMeters, arrangementStr, opts.Query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	if results == nil {
+		results = []model.TechnicalJobSearchResult{}
+	}
+	return results, nil
+}
+
+func (s *PostgresStore) CountTechnicalJobSearch(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) (int, error) {
+	var arrangementStr *string
+	if opts.WorkArrangement != nil {
+		str := string(*opts.WorkArrangement)
+		arrangementStr = &str
+	}
+
+	query := `
+		SELECT COUNT(*)
+		FROM technical_job_postings tj
+		JOIN companies c ON c.id = tj.company_id
+		WHERE tj.is_active = TRUE
+		  AND tj.lat IS NOT NULL
+		  AND tj.lng IS NOT NULL
+		  AND tj.work_arrangement <> 'remote'
+		  AND tj.publication_state = 'posted_recently'
+		  AND tj.posted_at IS NOT NULL
+		  AND tj.posted_at >= NOW() - INTERVAL '14 days'
+		  AND tj.posted_at_confidence > 0
+		  AND ST_DWithin(
+			  ST_SetSRID(ST_MakePoint(tj.lng, tj.lat), 4326)::geography,
+			  ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+			  $3
+		  )
+		  AND ($4::text IS NULL OR tj.work_arrangement = $4)
+		  AND (
+			  $5::text IS NULL
+			  OR tj.title ILIKE '%' || $5 || '%'
+			  OR tj.normalized_title % $5
+			  OR c.name ILIKE '%' || $5 || '%'
+		  )
+	`
+
+	var count int
+	err := s.db.GetContext(ctx, &count, query, lng, lat, radiusMeters, arrangementStr, opts.Query)
+	return count, err
+}
+

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -213,5 +214,97 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		"clusters": clusters,
+	})
+}
+
+func (h *SearchHandler) SearchJobs(w http.ResponseWriter, r *http.Request) {
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	if latStr == "" || lngStr == "" {
+		JSONError(w, http.StatusBadRequest, "lat and lng query parameters are required", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	lat, err1 := strconv.ParseFloat(latStr, 64)
+	lng, err2 := strconv.ParseFloat(lngStr, 64)
+	if err1 != nil || err2 != nil {
+		JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		JSONError(w, http.StatusBadRequest, "latitude must be between -90 and 90, longitude between -180 and 180", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	radiusKM := 15.0
+	if rStr := r.URL.Query().Get("radius"); rStr != "" {
+		if rVal, err := strconv.ParseFloat(rStr, 64); err == nil && rVal > 0 && rVal <= 100 {
+			radiusKM = rVal
+		}
+	}
+
+	var opts store.TechnicalJobSearchOpts
+
+	if q := r.URL.Query().Get("q"); q != "" {
+		opts.Query = &q
+	}
+
+	if arrStr := r.URL.Query().Get("work_arrangement"); arrStr != "" {
+		switch arrStr {
+		case "in_office", "onsite":
+			arr := model.WorkArrangementInOffice
+			opts.WorkArrangement = &arr
+		case "hybrid":
+			arr := model.WorkArrangementHybrid
+			opts.WorkArrangement = &arr
+		case "remote":
+			arr := model.WorkArrangementRemote
+			opts.WorkArrangement = &arr
+		case "unknown":
+			arr := model.WorkArrangementUnknown
+			opts.WorkArrangement = &arr
+		default:
+			JSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid work_arrangement '%s'", arrStr), "VALIDATION_ERROR", nil)
+			return
+		}
+	}
+
+	limit := 50
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if lVal, err := strconv.Atoi(lStr); err == nil && lVal > 0 && lVal <= 100 {
+			limit = lVal
+		}
+	}
+	opts.Limit = limit
+
+	page := 1
+	if pStr := r.URL.Query().Get("page"); pStr != "" {
+		if pVal, err := strconv.Atoi(pStr); err == nil && pVal > 0 {
+			page = pVal
+		}
+	}
+	opts.Offset = (page - 1) * limit
+
+	results, err := h.store.SearchTechnicalJobs(r.Context(), lat, lng, radiusKM*1000, opts)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to query technical jobs", "INTERNAL_ERROR", nil)
+		return
+	}
+
+	total, _ := h.store.CountTechnicalJobSearch(r.Context(), lat, lng, radiusKM*1000, opts)
+
+	JSON(w, http.StatusOK, map[string]any{
+		"meta": map[string]any{
+			"total":     total,
+			"page":      page,
+			"limit":     limit,
+			"radius_km": radiusKM,
+			"center": map[string]float64{
+				"lat": lat,
+				"lng": lng,
+			},
+		},
+		"jobs": results,
 	})
 }

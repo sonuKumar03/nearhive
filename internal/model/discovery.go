@@ -168,3 +168,27 @@ type LocationEvidenceSummary struct {
 	EvidenceTypes  pq.StringArray `db:"evidence_types" json:"evidence_types"`
 }
 
+type TechnicalJobSearchResult struct {
+	ID                 uuid.UUID        `db:"id" json:"id"`
+	CompanyID          uuid.UUID        `db:"company_id" json:"company_id"`
+	CompanyName        string           `db:"company_name" json:"company_name"`
+	CompanyDomain      *string          `db:"company_domain" json:"company_domain,omitempty"`
+	Title              string           `db:"title" json:"title"`
+	NormalizedTitle    string           `db:"normalized_title" json:"normalized_title"`
+	DescriptionExcerpt *string          `db:"description_excerpt" json:"description_excerpt,omitempty"`
+	CanonicalURL       *string          `db:"canonical_url" json:"canonical_url,omitempty"`
+	Source             string           `db:"source" json:"source"`
+	SourceFamily       string           `db:"source_family" json:"source_family"`
+	LocationRaw        *string          `db:"location_raw" json:"location_raw,omitempty"`
+	Lat                float64          `db:"lat" json:"lat"`
+	Lng                float64          `db:"lng" json:"lng"`
+	DistanceMeters     float64          `db:"distance_m" json:"distance_meters"`
+	WorkArrangement    WorkArrangement  `db:"work_arrangement" json:"work_arrangement"`
+	PublicationState   PublicationState `db:"publication_state" json:"publication_state"`
+	PostedAt           *time.Time       `db:"posted_at" json:"posted_at,omitempty"`
+	PostedAtConfidence float64          `db:"posted_at_confidence" json:"posted_at_confidence"`
+	FirstSeenAt        time.Time        `db:"first_seen_at" json:"first_seen_at"`
+	LastSeenAt         time.Time        `db:"last_seen_at" json:"last_seen_at"`
+	Metadata           JSONMap          `db:"metadata" json:"metadata"`
+}
+

@@ -83,9 +83,18 @@ type DiscoveryStore interface {
 }
 
 
+type TechnicalJobSearchOpts struct {
+	Query           *string
+	WorkArrangement *model.WorkArrangement
+	Limit           int
+	Offset          int
+}
+
 type TechnicalJobStore interface {
 	GetTechnicalJobsByCompany(ctx context.Context, companyID uuid.UUID, since time.Time) ([]model.TechnicalJobPosting, error)
 	UpsertTechnicalJob(ctx context.Context, job *model.TechnicalJobPosting) error
+	SearchTechnicalJobs(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error)
+	CountTechnicalJobSearch(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) (int, error)
 }
 
 type Store interface {

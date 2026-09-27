@@ -822,6 +822,185 @@ func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJo
 	return nil
 }
 
+func (m *MockStore) SearchTechnicalJobs(_ context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+	type matchedJob struct {
+		result   model.TechnicalJobSearchResult
+		postedAt time.Time
+	}
+	var matched []matchedJob
+
+	for _, j := range m.TechnicalJobs {
+		if !j.IsActive || j.Lat == nil || j.Lng == nil {
+			continue
+		}
+		if j.WorkArrangement == model.WorkArrangementRemote {
+			continue
+		}
+		if j.PublicationState != model.PublicationStatePostedRecently {
+			continue
+		}
+		if j.PostedAt == nil || j.PostedAt.Before(fourteenDaysAgo) {
+			continue
+		}
+		if j.PostedAtConfidence <= 0 {
+			continue
+		}
+
+		dist := haversineDistance(lat, lng, *j.Lat, *j.Lng)
+		if dist > radiusMeters {
+			continue
+		}
+
+		if opts.WorkArrangement != nil && j.WorkArrangement != *opts.WorkArrangement {
+			continue
+		}
+
+		c := m.Companies[j.CompanyID]
+		compName := ""
+		var compDomain *string
+		if c != nil {
+			compName = c.Name
+			compDomain = c.Domain
+		}
+
+		if opts.Query != nil && *opts.Query != "" {
+			q := strings.ToLower(*opts.Query)
+			words := strings.Fields(q)
+			fullText := strings.ToLower(j.Title + " " + j.NormalizedTitle + " " + compName)
+			matches := true
+			for _, w := range words {
+				if !strings.Contains(fullText, w) {
+					matches = false
+					break
+				}
+			}
+			if !matches {
+				continue
+			}
+		}
+
+		res := model.TechnicalJobSearchResult{
+			ID:                 j.ID,
+			CompanyID:          j.CompanyID,
+			CompanyName:        compName,
+			CompanyDomain:      compDomain,
+			Title:              j.Title,
+			NormalizedTitle:    j.NormalizedTitle,
+			DescriptionExcerpt: j.DescriptionExcerpt,
+			CanonicalURL:       j.CanonicalURL,
+			Source:             j.Source,
+			SourceFamily:       j.SourceFamily,
+			LocationRaw:        j.LocationRaw,
+			Lat:                *j.Lat,
+			Lng:                *j.Lng,
+			DistanceMeters:     dist,
+			WorkArrangement:    j.WorkArrangement,
+			PublicationState:   j.PublicationState,
+			PostedAt:           j.PostedAt,
+			PostedAtConfidence: j.PostedAtConfidence,
+			FirstSeenAt:        j.FirstSeenAt,
+			LastSeenAt:         j.LastSeenAt,
+			Metadata:           j.Metadata,
+		}
+		matched = append(matched, matchedJob{result: res, postedAt: *j.PostedAt})
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].result.DistanceMeters != matched[j].result.DistanceMeters {
+			return matched[i].result.DistanceMeters < matched[j].result.DistanceMeters
+		}
+		return matched[i].postedAt.After(matched[j].postedAt)
+	})
+
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	if offset >= len(matched) {
+		return []model.TechnicalJobSearchResult{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+
+	results := make([]model.TechnicalJobSearchResult, end-offset)
+	for i := offset; i < end; i++ {
+		results[i-offset] = matched[i].result
+	}
+	return results, nil
+}
+
+func (m *MockStore) CountTechnicalJobSearch(_ context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+	count := 0
+
+	for _, j := range m.TechnicalJobs {
+		if !j.IsActive || j.Lat == nil || j.Lng == nil {
+			continue
+		}
+		if j.WorkArrangement == model.WorkArrangementRemote {
+			continue
+		}
+		if j.PublicationState != model.PublicationStatePostedRecently {
+			continue
+		}
+		if j.PostedAt == nil || j.PostedAt.Before(fourteenDaysAgo) {
+			continue
+		}
+		if j.PostedAtConfidence <= 0 {
+			continue
+		}
+
+		dist := haversineDistance(lat, lng, *j.Lat, *j.Lng)
+		if dist > radiusMeters {
+			continue
+		}
+
+		if opts.WorkArrangement != nil && j.WorkArrangement != *opts.WorkArrangement {
+			continue
+		}
+
+		c := m.Companies[j.CompanyID]
+		compName := ""
+		if c != nil {
+			compName = c.Name
+		}
+
+		if opts.Query != nil && *opts.Query != "" {
+			q := strings.ToLower(*opts.Query)
+			words := strings.Fields(q)
+			fullText := strings.ToLower(j.Title + " " + j.NormalizedTitle + " " + compName)
+			matches := true
+			for _, w := range words {
+				if !strings.Contains(fullText, w) {
+					matches = false
+					break
+				}
+			}
+			if !matches {
+				continue
+			}
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
 func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

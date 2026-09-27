@@ -81,6 +81,7 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 
 		protected.Get("/api/v1/search", searchHandler.Search)
 		protected.Post("/api/v1/search", searchHandler.Search)
+		protected.Get("/api/v1/search/jobs", searchHandler.SearchJobs)
 		protected.Get("/api/v1/search/clusters", searchHandler.SearchClusters)
 		protected.Get("/api/v1/companies/{id}", companyHandler.GetCompany)
 		protected.Get("/api/v1/companies/{id}/sightings", companyHandler.GetSightings)

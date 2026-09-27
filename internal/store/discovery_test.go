@@ -928,4 +928,259 @@ func TestSearch_ExcludesStaleJobsWithConfidence(t *testing.T) {
 	})
 }
 
+func TestTechnicalJobSpatialSearch(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		uid := uuid.New().String()[:8]
+
+		comp := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("Tech Corp %s", uid),
+			NormalizedName: fmt.Sprintf("tech corp %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, comp))
+
+		now := time.Now()
+		twoDaysAgo := now.Add(-2 * 24 * time.Hour)
+		fiveDaysAgo := now.Add(-5 * 24 * time.Hour)
+		twentyDaysAgo := now.Add(-20 * 24 * time.Hour)
+
+		centerLat := 37.7749
+		centerLng := -122.4194
+
+		// 1. Target job: ~1km away, in_office, active, posted_recently, confident, matches query
+		targetLat := 37.7830
+		targetLng := -122.4180
+		jobTarget := &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-target-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Senior Go Engineer %s", uid),
+			NormalizedTitle:         fmt.Sprintf("senior go engineer %s", uid),
+			ContentHash:             fmt.Sprintf("hash-target-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}
+		require.NoError(t, s.UpsertTechnicalJob(ctx, jobTarget))
+
+		// 2. Second target job: ~5km away, hybrid, active, posted_recently, confident, matches query
+		target2Lat := 37.7400
+		target2Lng := -122.4200
+		jobTarget2 := &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-target2-%s", uid),
+			SourceFamily:            "company_site",
+			Title:                   fmt.Sprintf("Staff Go Architect %s", uid),
+			NormalizedTitle:         fmt.Sprintf("staff go architect %s", uid),
+			ContentHash:             fmt.Sprintf("hash-target2-%s", uid),
+			Lat:                     &target2Lat,
+			Lng:                     &target2Lng,
+			WorkArrangement:         model.WorkArrangementHybrid,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &fiveDaysAgo,
+			PostedAtConfidence:      0.90,
+			FirstSeenAt:             fiveDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}
+		require.NoError(t, s.UpsertTechnicalJob(ctx, jobTarget2))
+
+		// 3. Outside radius: San Jose (~65km)
+		sjLat := 37.3382
+		sjLng := -121.8863
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-outside-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Go Engineer Outside %s", uid),
+			NormalizedTitle:         fmt.Sprintf("go engineer outside %s", uid),
+			ContentHash:             fmt.Sprintf("hash-outside-%s", uid),
+			Lat:                     &sjLat,
+			Lng:                     &sjLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}))
+
+		// 4. Remote job
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-remote-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Remote Go Engineer %s", uid),
+			NormalizedTitle:         fmt.Sprintf("remote go engineer %s", uid),
+			ContentHash:             fmt.Sprintf("hash-remote-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementRemote,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}))
+
+		// 5. Stale job (posted > 14 days ago)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-stale-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Stale Go Engineer %s", uid),
+			NormalizedTitle:         fmt.Sprintf("stale go engineer %s", uid),
+			ContentHash:             fmt.Sprintf("hash-stale-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twentyDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twentyDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}))
+
+		// 6. Weak date confidence (0.0)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-weak-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Weak Date Go Engineer %s", uid),
+			NormalizedTitle:         fmt.Sprintf("weak date go engineer %s", uid),
+			ContentHash:             fmt.Sprintf("hash-weak-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.0,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}))
+
+		// 7. Inactive job
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-inactive-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Inactive Go Engineer %s", uid),
+			NormalizedTitle:         fmt.Sprintf("inactive go engineer %s", uid),
+			ContentHash:             fmt.Sprintf("hash-inactive-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                false,
+			TechnicalClassification: "backend",
+			RuleVersion:             "v1",
+		}))
+
+		// 8. Title mismatch
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("src-mismatch-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   fmt.Sprintf("Executive Assistant %s", uid),
+			NormalizedTitle:         fmt.Sprintf("executive assistant %s", uid),
+			ContentHash:             fmt.Sprintf("hash-mismatch-%s", uid),
+			Lat:                     &targetLat,
+			Lng:                     &targetLng,
+			WorkArrangement:         model.WorkArrangementInOffice,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &twoDaysAgo,
+			PostedAtConfidence:      0.95,
+			FirstSeenAt:             twoDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "ops",
+			RuleVersion:             "v1",
+		}))
+
+		// Search without filters (query matches uid and "Go")
+		q := fmt.Sprintf("Go %s", uid)
+		jobs, err := s.SearchTechnicalJobs(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query: &q,
+			Limit: 50,
+		})
+		require.NoError(t, err)
+		require.Len(t, jobs, 2, "Only jobTarget and jobTarget2 should match")
+		assert.Equal(t, fmt.Sprintf("Senior Go Engineer %s", uid), jobs[0].Title)
+		assert.Equal(t, fmt.Sprintf("Staff Go Architect %s", uid), jobs[1].Title)
+		assert.True(t, jobs[0].DistanceMeters < jobs[1].DistanceMeters, "Should be ordered by distance ascending")
+		assert.Equal(t, comp.Name, jobs[0].CompanyName)
+
+		count, err := s.CountTechnicalJobSearch(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query: &q,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+
+		// Filter by WorkArrangement = in_office
+		inOffice := model.WorkArrangementInOffice
+		jobsInOffice, err := s.SearchTechnicalJobs(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query:           &q,
+			WorkArrangement: &inOffice,
+			Limit:           50,
+		})
+		require.NoError(t, err)
+		require.Len(t, jobsInOffice, 1)
+		assert.Equal(t, fmt.Sprintf("Senior Go Engineer %s", uid), jobsInOffice[0].Title)
+
+		countInOffice, err := s.CountTechnicalJobSearch(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query:           &q,
+			WorkArrangement: &inOffice,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, countInOffice)
+
+		// Pagination: limit=1, offset=0
+		p1, err := s.SearchTechnicalJobs(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query:  &q,
+			Limit:  1,
+			Offset: 0,
+		})
+		require.NoError(t, err)
+		require.Len(t, p1, 1)
+		assert.Equal(t, fmt.Sprintf("Senior Go Engineer %s", uid), p1[0].Title)
+
+		// Pagination: limit=1, offset=1
+		p2, err := s.SearchTechnicalJobs(ctx, centerLat, centerLng, 15000, TechnicalJobSearchOpts{
+			Query:  &q,
+			Limit:  1,
+			Offset: 1,
+		})
+		require.NoError(t, err)
+		require.Len(t, p2, 1)
+		assert.Equal(t, fmt.Sprintf("Staff Go Architect %s", uid), p2[0].Title)
+	})
+}
+
 

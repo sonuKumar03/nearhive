@@ -882,3 +882,67 @@ def test_worker_staged_cancellation_stops_before_next_stage(db_conn, test_user_i
     assert gh_ran is False
 
 
+def test_worker_resolves_job_locations_before_submission(db_conn, test_user_id):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    job_evidence = TechnicalJobEvidence(
+        company_name="Austin Tech",
+        title="Python Engineer",
+        location_raw="Austin, TX",
+        work_arrangement=WorkArrangement.ON_SITE,
+    )
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="custom_jobs",
+        source_family="job_ats",
+        observed_at=datetime.now(timezone.utc),
+        companies=[],
+        jobs=[job_evidence],
+    )
+
+    submitted_batches: list[EvidenceBatch] = []
+
+    class DummyClient:
+        def submit(self, b):
+            submitted_batches.append(b)
+            return BatchResult(
+                accepted_companies=0,
+                accepted_jobs=len(b.jobs),
+                total_accepted=len(b.jobs),
+                record_results=[],
+            )
+
+    def geo_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"lat": "30.2672", "lon": "-97.7431"}])
+
+    geo_client = httpx.AsyncClient(transport=httpx.MockTransport(geo_handler))
+    from nearhive_discovery.location import LocationResolver
+    resolver = LocationResolver(http_client=geo_client)
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=DummyClient(),
+        sources=[MockSource(name="custom_jobs", source_family="job_ats", return_batches=[batch])],
+        worker_id="test-worker-geo",
+        location_resolver=resolver,
+    )
+
+    handled = worker.run_once()
+    assert handled is True
+    assert len(submitted_batches) == 1
+    submitted_job = submitted_batches[0].jobs[0]
+    assert submitted_job.lat == 30.2672
+    assert submitted_job.lng == -97.7431
+    assert submitted_job.metadata.get("location_resolution") == "geocoded"
+
+
+

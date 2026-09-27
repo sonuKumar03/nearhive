@@ -6,12 +6,14 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncIterable, Iterable
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
 
 import psycopg
 
 from nearhive_discovery.client import IngestionClient
+from nearhive_discovery.location import LocationResolver, resolve_job_location
 from nearhive_discovery.contracts import (
     DiscoveryJob,
     DiscoverySourceRun,
@@ -59,6 +61,7 @@ class Worker:
         playwright_pool: Any | None = None,
         max_company_sites: int = settings.max_company_sites,
         site_fetcher: Any | None = None,
+        location_resolver: Any | None = None,
     ) -> None:
         self.db_url = db_url
         self.client = client if client is not None else IngestionClient(
@@ -77,6 +80,9 @@ class Worker:
         )
         self.max_company_sites = max_company_sites
         self.site_fetcher = site_fetcher
+        self.location_resolver = (
+            location_resolver if location_resolver is not None else LocationResolver()
+        )
         self.sources: list[Source] = sources if sources is not None else []
         try:
             for s in self.sources:
@@ -102,6 +108,32 @@ class Worker:
             logger.info("Claimed job %s on worker %s", job.id, self.worker_id)
             self._process_job(conn, job)
             return True
+
+    async def _resolve_batch_jobs_async(self, batch: EvidenceBatch) -> EvidenceBatch:
+        if not self.location_resolver or not batch.jobs:
+            return batch
+        resolved_jobs = []
+        for job in batch.jobs:
+            try:
+                resolved_jobs.append(await resolve_job_location(job, self.location_resolver))
+            except Exception as exc:
+                logger.debug("Failed resolving job location: %s", exc)
+                resolved_jobs.append(job)
+        return replace(batch, jobs=resolved_jobs)
+
+    def _resolve_batch_jobs_sync(self, batch: EvidenceBatch) -> EvidenceBatch:
+        if not self.location_resolver or not batch.jobs:
+            return batch
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, self._resolve_batch_jobs_async(batch)).result()
+        else:
+            return asyncio.run(self._resolve_batch_jobs_async(batch))
 
     def _process_job(self, conn: Any, job: DiscoveryJob) -> None:
         stop_heartbeat = threading.Event()
@@ -310,6 +342,7 @@ class Worker:
                             raise RuntimeError("Lease lost during batch submission")
                         if not isinstance(batch, EvidenceBatch):
                             continue
+                        batch = await self._resolve_batch_jobs_async(batch)
                         if on_batch is not None:
                             on_batch(batch)
                         result = self.client.submit(batch)
@@ -331,6 +364,7 @@ class Worker:
             elif isinstance(raw_batches, EvidenceBatch):
                 if lease_lost.is_set():
                     raise RuntimeError("Lease lost during batch submission")
+                raw_batches = self._resolve_batch_jobs_sync(raw_batches)
                 if on_batch is not None:
                     on_batch(raw_batches)
                 result = self.client.submit(raw_batches)
@@ -344,6 +378,7 @@ class Worker:
                         raise RuntimeError("Lease lost during batch submission")
                     if not isinstance(batch, EvidenceBatch):
                         continue
+                    batch = self._resolve_batch_jobs_sync(batch)
                     if on_batch is not None:
                         on_batch(batch)
                     result = self.client.submit(batch)
@@ -408,6 +443,20 @@ class Worker:
                             asyncio.run(res)
                 except Exception as exc:
                     logger.debug("Error closing playwright pool: %s", exc)
+
+        if self.location_resolver is not None:
+            close_fn = getattr(self.location_resolver, "close", None)
+            if callable(close_fn):
+                try:
+                    res = close_fn()
+                    if inspect.isawaitable(res):
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(res)
+                        except RuntimeError:
+                            asyncio.run(res)
+                except Exception as exc:
+                    logger.debug("Error closing location resolver: %s", exc)
 
     def run(
         self,

@@ -17,6 +17,11 @@ class Settings:
     poll_interval_seconds: float = float(os.getenv("NEARHIVE_POLL_INTERVAL", "2.0"))
     playwright_contexts: int = int(os.getenv("PLAYWRIGHT_CONTEXTS", "2"))
     max_company_sites: int = int(os.getenv("NEARHIVE_MAX_COMPANY_SITES", "50"))
+    geocoder_url: str = os.getenv(
+        "NEARHIVE_GEOCODER_URL", "https://nominatim.openstreetmap.org/search"
+    )
+    geocoder_provider: str = os.getenv("NEARHIVE_GEOCODER_PROVIDER", "nominatim")
+    max_job_geocodes: int = int(os.getenv("NEARHIVE_MAX_JOB_GEOCODES", "50"))
 
 
 

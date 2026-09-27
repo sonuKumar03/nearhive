@@ -16,6 +16,7 @@ class PresenceType(str, Enum):
 
 class WorkArrangement(str, Enum):
     IN_OFFICE = "in_office"
+    ON_SITE = "in_office"
     HYBRID = "hybrid"
     REMOTE = "remote"
     UNKNOWN = "unknown"

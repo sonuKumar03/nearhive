@@ -254,7 +254,7 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	      AND tj.is_active = TRUE
 	      AND tj.posted_at IS NOT NULL
 	      AND tj.posted_at >= NOW() - INTERVAL '14 days'
-	      AND (tj.publication_state = 'posted_recently' OR (tj.posted_at_confidence > 0 AND tj.publication_state != 'observed_recently'))
+	      AND (tj.publication_state = 'posted_recently' OR (tj.posted_at_confidence > 0 AND tj.publication_state NOT IN ('observed_recently', 'stale')))
 	) j ON TRUE
 	WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	  AND ($4::float IS NULL OR l.confidence >= $4)

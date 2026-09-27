@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import uuid
@@ -614,3 +615,76 @@ def test_worker_lease_lost_aborts_execution(db_conn, test_user_id):
 
     # Source 2 should NOT have been executed because lease was lost!
     assert source2.called_with_job is None
+
+
+def test_worker_async_generator_source_in_running_event_loop(db_conn, test_user_id):
+    job_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (id, user_id, status, lat, lng, radius_km, attempts, max_attempts)
+            VALUES (%s, %s, 'pending', 37.7749, -122.4194, 10.0, 0, 3)
+            """,
+            (job_id, test_user_id),
+        )
+
+    batch1 = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="async_gen_source",
+        source_family="search_engine",
+        observed_at=datetime.now(timezone.utc),
+        companies=[CompanyEvidence(name="Async Company 1")],
+        jobs=[],
+    )
+    batch2 = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=str(job_id),
+        source="async_gen_source",
+        source_family="search_engine",
+        observed_at=datetime.now(timezone.utc),
+        companies=[CompanyEvidence(name="Async Company 2")],
+        jobs=[],
+    )
+
+    class AsyncGeneratorSource(Source):
+        name = "async_gen_source"
+        source_family = "search_engine"
+
+        async def run(self, job: DiscoveryJob):
+            await asyncio.sleep(0.01)
+            yield batch1
+            await asyncio.sleep(0.01)
+            yield batch2
+
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "companies": [{"index": 0, "status": "accepted", "id": "uuid-async"}],
+                "jobs": [],
+            },
+        )
+    )
+    client = IngestionClient("http://localhost:8080", "secret", client=httpx.Client(transport=transport))
+
+    worker = Worker(
+        db_url=DATABASE_URL,
+        client=client,
+        sources=[AsyncGeneratorSource()],
+        worker_id="test-worker-async-gen",
+    )
+
+    # Invoke run_once from inside an actively running asyncio event loop
+    async def _run_in_active_loop():
+        return worker.run_once()
+
+    handled = asyncio.run(_run_in_active_loop())
+    assert handled is True
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, company_count FROM discovery_jobs WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        assert row[0] == "completed"
+        assert row[1] == 2
+

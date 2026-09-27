@@ -894,3 +894,131 @@ func TestDiscoveryIdempotency_API(t *testing.T) {
 	assert.WithinDuration(t, t2, foundHashJobs[0].LastSeenAt, 2*time.Second, "job last_seen_at should be updated")
 }
 
+func TestDiscoveryIngest_ValidationEnumsAndObservedAt(t *testing.T) {
+	workerToken := "test-worker-token"
+	router, _ := setupDiscoveryBatchRouter(workerToken)
+
+	t.Run("invalid work_arrangement returns 400", func(t *testing.T) {
+		batch := map[string]any{
+			"contract_version": 1,
+			"source":           "validator_test",
+			"source_family":    "job_ats",
+			"observed_at":      time.Now().Format(time.RFC3339),
+			"jobs": []map[string]any{
+				{
+					"company_name":     "Acme Corp",
+					"title":            "Engineer",
+					"work_arrangement": "invalid_arrangement",
+				},
+			},
+		}
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-NearHive-Worker-Token", workerToken)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid work_arrangement")
+	})
+
+	t.Run("invalid publication_state returns 400", func(t *testing.T) {
+		batch := map[string]any{
+			"contract_version": 1,
+			"source":           "validator_test",
+			"source_family":    "job_ats",
+			"observed_at":      time.Now().Format(time.RFC3339),
+			"jobs": []map[string]any{
+				{
+					"company_name":      "Acme Corp",
+					"title":             "Engineer",
+					"publication_state": "invalid_state",
+				},
+			},
+		}
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-NearHive-Worker-Token", workerToken)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid publication_state")
+	})
+
+	t.Run("observed_at too far in future returns 400", func(t *testing.T) {
+		batch := map[string]any{
+			"contract_version": 1,
+			"source":           "validator_test",
+			"source_family":    "job_ats",
+			"observed_at":      time.Now().Add(10 * time.Minute).Format(time.RFC3339),
+			"jobs": []map[string]any{
+				{
+					"company_name": "Acme Corp",
+					"title":        "Engineer",
+				},
+			},
+		}
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-NearHive-Worker-Token", workerToken)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "observed_at cannot be in the future")
+	})
+
+	t.Run("observed_at within 5 min clock skew returns 200", func(t *testing.T) {
+		batch := map[string]any{
+			"contract_version": 1,
+			"source":           "validator_test",
+			"source_family":    "job_ats",
+			"observed_at":      time.Now().Add(2 * time.Minute).Format(time.RFC3339),
+			"jobs": []map[string]any{
+				{
+					"company_name": "Acme Corp",
+					"title":        "Engineer",
+				},
+			},
+		}
+		body, _ := json.Marshal(batch)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-NearHive-Worker-Token", workerToken)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("valid work_arrangements and publication_states return 200", func(t *testing.T) {
+		validArrangements := []string{"in_office", "hybrid", "remote", "onsite", "unknown", ""}
+		validStates := []string{"posted_recently", "observed_recently", "stale", ""}
+
+		for _, arr := range validArrangements {
+			for _, st := range validStates {
+				batch := map[string]any{
+					"contract_version": 1,
+					"source":           "validator_test",
+					"source_family":    "job_ats",
+					"jobs": []map[string]any{
+						{
+							"company_name":      "Valid Co",
+							"title":             "Valid Role",
+							"work_arrangement":  arr,
+							"publication_state": st,
+						},
+					},
+				}
+				body, _ := json.Marshal(batch)
+				req, _ := http.NewRequest(http.MethodPost, "/api/v1/internal/discovery/batches", bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-NearHive-Worker-Token", workerToken)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code, "arrangement '%s' and state '%s' should be valid", arr, st)
+			}
+		}
+	})
+}
+

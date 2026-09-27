@@ -247,8 +247,9 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 				if job.PostedAt == nil || job.PostedAt.Before(fourteenDaysAgo) {
 					continue
 				}
-				isTrustworthy := job.PublicationState == model.PublicationStatePostedRecently ||
-					(job.PostedAtConfidence > 0 && job.PublicationState != model.PublicationStateObservedRecently)
+				isTrustworthy := (job.PublicationState == model.PublicationStatePostedRecently ||
+					(job.PostedAtConfidence > 0 && job.PublicationState != model.PublicationStateObservedRecently)) &&
+					job.PublicationState != model.PublicationStateStale
 				if !isTrustworthy {
 					continue
 				}

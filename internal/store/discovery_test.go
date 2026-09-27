@@ -846,4 +846,86 @@ func TestSearchDiscovery(t *testing.T) {
 	})
 }
 
+func TestSearch_ExcludesStaleJobsWithConfidence(t *testing.T) {
+	forEachStore(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		uid := uuid.New().String()[:8]
+		centerLat := 12.9716
+		centerLng := 77.5946
+		now := time.Now()
+		threeDaysAgo := now.Add(-3 * 24 * time.Hour)
+
+		comp := &model.Company{
+			ID:             uuid.New(),
+			Name:           fmt.Sprintf("StaleTest Co %s", uid),
+			NormalizedName: fmt.Sprintf("staletest co %s", uid),
+		}
+		require.NoError(t, s.CreateCompany(ctx, comp))
+
+		loc := &model.Location{
+			CompanyID:    comp.ID,
+			Address:      "Indiranagar, Bangalore",
+			Lat:          centerLat + 0.001,
+			Lng:          centerLng + 0.001,
+			Confidence:   0.9,
+			PresenceType: model.PresenceTypeConfirmedOffice,
+			Verified:     true,
+		}
+		require.NoError(t, s.CreateLocation(ctx, loc))
+
+		// 1. Stale job posted recently (3 days ago) with high confidence (1.0).
+		// Must NOT be counted in recent_technical_job_count or arrangements.
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("stale-src-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Stale Architect",
+			NormalizedTitle:         "stale architect",
+			ContentHash:             fmt.Sprintf("hash-stale-%s", uid),
+			WorkArrangement:         model.WorkArrangementRemote,
+			PublicationState:        model.PublicationStateStale,
+			PostedAt:                &threeDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             threeDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "architecture",
+			RuleVersion:             "v1",
+		}))
+
+		// Search: count should be 0, arrangements empty
+		results, err := s.Search(ctx, centerLat, centerLng, 5000, SearchOpts{Query: &uid})
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, 0, results[0].RecentTechnicalJobCount, "Stale job with confidence > 0 must NOT be counted")
+		assert.Empty(t, results[0].Arrangements, "Arrangements should not include stale job arrangement")
+
+		// 2. Add an active posted_recently job (Hybrid)
+		require.NoError(t, s.UpsertTechnicalJob(ctx, &model.TechnicalJobPosting{
+			CompanyID:               comp.ID,
+			Source:                  fmt.Sprintf("active-src-%s", uid),
+			SourceFamily:            "job_ats",
+			Title:                   "Active Developer",
+			NormalizedTitle:         "active developer",
+			ContentHash:             fmt.Sprintf("hash-active-%s", uid),
+			WorkArrangement:         model.WorkArrangementHybrid,
+			PublicationState:        model.PublicationStatePostedRecently,
+			PostedAt:                &threeDaysAgo,
+			PostedAtConfidence:      1.0,
+			FirstSeenAt:             threeDaysAgo,
+			LastSeenAt:              now,
+			IsActive:                true,
+			TechnicalClassification: "software_engineering",
+			RuleVersion:             "v1",
+		}))
+
+		// Search again: count should be 1 (only the active job), and arrangements should be [hybrid]
+		results2, err := s.Search(ctx, centerLat, centerLng, 5000, SearchOpts{Query: &uid})
+		require.NoError(t, err)
+		require.Len(t, results2, 1)
+		assert.Equal(t, 1, results2[0].RecentTechnicalJobCount, "Only trustworthy non-stale job should be counted")
+		assert.ElementsMatch(t, []model.WorkArrangement{model.WorkArrangementHybrid}, results2[0].Arrangements)
+	})
+}
+
 

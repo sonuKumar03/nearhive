@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import inspect
 import logging
 import threading
@@ -171,8 +172,13 @@ class Worker:
 
                         try:
                             loop = asyncio.get_running_loop()
-                            batch_iter = loop.run_until_complete(_collect())
                         except RuntimeError:
+                            loop = None
+
+                        if loop is not None and loop.is_running():
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                batch_iter = pool.submit(asyncio.run, _collect()).result()
+                        else:
                             batch_iter = asyncio.run(_collect())
                     elif isinstance(raw_batches, Iterable) and not isinstance(
                         raw_batches, (str, bytes, dict)

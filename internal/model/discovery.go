@@ -30,6 +30,7 @@ type WorkArrangement string
 
 const (
 	WorkArrangementInOffice WorkArrangement = "in_office"
+	WorkArrangementOnsite   WorkArrangement = "in_office"
 	WorkArrangementHybrid   WorkArrangement = "hybrid"
 	WorkArrangementRemote   WorkArrangement = "remote"
 	WorkArrangementUnknown  WorkArrangement = "unknown"

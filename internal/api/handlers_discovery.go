@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -269,6 +270,20 @@ func (h *DiscoveryHandler) IngestBatch(w http.ResponseWriter, r *http.Request) {
 	observedAt := batch.ObservedAt
 	if observedAt.IsZero() {
 		observedAt = now
+	} else if observedAt.After(now.Add(5 * time.Minute)) {
+		JSONError(w, http.StatusBadRequest, "observed_at cannot be in the future", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	for i, j := range batch.Jobs {
+		if !isValidWorkArrangement(j.WorkArrangement) {
+			JSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid work_arrangement '%s' at job index %d", j.WorkArrangement, i), "VALIDATION_ERROR", nil)
+			return
+		}
+		if !isValidPublicationState(j.PublicationState) {
+			JSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid publication_state '%s' at job index %d", j.PublicationState, i), "VALIDATION_ERROR", nil)
+			return
+		}
 	}
 
 	companiesResults := make([]BatchRecordResult, 0, len(batch.Companies))
@@ -368,7 +383,9 @@ func (h *DiscoveryHandler) IngestBatch(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if h.engine != nil {
-			_ = h.engine.ProcessDiscoverySighting(r.Context(), sighting)
+			if err := h.engine.ProcessDiscoverySighting(r.Context(), sighting); err != nil {
+				log.Printf("[Discovery] warning: failed to process discovery sighting %s: %v", sighting.ID, err)
+			}
 		}
 
 		companiesResults = append(companiesResults, BatchRecordResult{
@@ -494,6 +511,8 @@ func (h *DiscoveryHandler) IngestBatch(w http.ResponseWriter, r *http.Request) {
 		workArr := j.WorkArrangement
 		if workArr == "" {
 			workArr = model.WorkArrangementUnknown
+		} else if workArr == "onsite" {
+			workArr = model.WorkArrangementInOffice
 		}
 		pubState := j.PublicationState
 		if pubState == "" {
@@ -563,7 +582,9 @@ func (h *DiscoveryHandler) IngestBatch(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if h.engine != nil && companyID != uuid.Nil {
-			_ = h.engine.RecalculateLocationEvidence(r.Context(), companyID)
+			if err := h.engine.RecalculateLocationEvidence(r.Context(), companyID); err != nil {
+				log.Printf("[Discovery] warning: failed to recalculate location evidence for company %s: %v", companyID, err)
+			}
 		}
 
 		jobsResults = append(jobsResults, BatchRecordResult{
@@ -589,6 +610,24 @@ type BatchRecordResult struct {
 type DiscoveryBatchResponse struct {
 	Companies []BatchRecordResult `json:"companies"`
 	Jobs      []BatchRecordResult `json:"jobs"`
+}
+
+func isValidWorkArrangement(wa model.WorkArrangement) bool {
+	switch wa {
+	case "", model.WorkArrangementInOffice, model.WorkArrangementHybrid, model.WorkArrangementRemote, model.WorkArrangementUnknown, "onsite":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidPublicationState(ps model.PublicationState) bool {
+	switch ps {
+	case "", model.PublicationStatePostedRecently, model.PublicationStateObservedRecently, model.PublicationStateStale:
+		return true
+	default:
+		return false
+	}
 }
 
 func isValidURLScheme(rawURL string) bool {

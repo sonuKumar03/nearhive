@@ -43,11 +43,13 @@ class GreenhouseSource(BaseSourceAdapter):
         http_client: httpx.AsyncClient | None = None,
         batch_size: int = 50,
         page_ceiling: int = 10,
+        reference_time: datetime | None = None,
     ) -> None:
         self.batch_size = max(1, batch_size)
         self.page_ceiling = max(1, page_ceiling)
         self.fetcher = fetcher
         self.http_client = http_client
+        self.reference_time = reference_time
 
         if boards is not None:
             self.boards = list(boards)
@@ -67,9 +69,11 @@ class GreenhouseSource(BaseSourceAdapter):
             return await self.fetcher(url)
         return await safe_fetch_text(url, client=self.http_client, timeout=10.0)
 
-    async def run(self, job: DiscoveryJob) -> AsyncIterator[EvidenceBatch]:
+    async def run(
+        self, job: DiscoveryJob, now: datetime | None = None
+    ) -> AsyncIterator[EvidenceBatch]:
         """Executes discovery against configured Greenhouse job boards."""
-        now = datetime.now(timezone.utc)
+        current_time = now or self.reference_time or datetime.now(timezone.utc)
 
         for board_cfg in self.boards:
             token = board_cfg.get("board_token") or board_cfg.get("token") or board_cfg.get("site")
@@ -166,8 +170,8 @@ class GreenhouseSource(BaseSourceAdapter):
 
                     pub_state = publication_state(
                         posted_at=posted_at,
-                        first_seen_at=now,
-                        now=now,
+                        first_seen_at=current_time,
+                        now=current_time,
                         posted_at_trusted=True,
                     )
 
@@ -193,8 +197,8 @@ class GreenhouseSource(BaseSourceAdapter):
                         publication_state=pub_state,
                         posted_at=posted_at,
                         posted_at_confidence=1.0 if posted_at is not None else 0.0,
-                        first_seen_at=now,
-                        last_seen_at=now,
+                        first_seen_at=current_time,
+                        last_seen_at=current_time,
                         technical_classification=classification.classification,
                         rule_version=classification.rule_version,
                         classification_reasons=classification.reasons,
@@ -213,7 +217,7 @@ class GreenhouseSource(BaseSourceAdapter):
                             discovery_job_id=job.id,
                             source=self.name,
                             source_family=self.source_family,
-                            observed_at=now,
+                            observed_at=current_time,
                             companies=companies_to_send,
                             jobs=pending_jobs,
                         )
@@ -230,7 +234,7 @@ class GreenhouseSource(BaseSourceAdapter):
                     discovery_job_id=job.id,
                     source=self.name,
                     source_family=self.source_family,
-                    observed_at=now,
+                    observed_at=current_time,
                     companies=companies_to_send,
                     jobs=pending_jobs,
                 )

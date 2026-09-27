@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import uuid
@@ -53,6 +54,7 @@ class TestGreenhouseSource:
             company_name="Nova Robotics",
             company_domain="novarobotics.io",
             fetcher=mock_fetch,
+            reference_time=datetime(2026, 9, 27, 0, 0, tzinfo=timezone.utc),
         )
 
         batches = []

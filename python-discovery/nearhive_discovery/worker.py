@@ -138,6 +138,7 @@ class Worker:
     def _process_job(self, conn: Any, job: DiscoveryJob) -> None:
         stop_heartbeat = threading.Event()
         lease_lost = threading.Event()
+        cancelled = threading.Event()
 
         def heartbeat_target() -> None:
             while not stop_heartbeat.wait(self.heartbeat_interval_seconds):
@@ -150,12 +151,36 @@ class Worker:
                             extend_seconds=self.lease_seconds,
                         )
                         if not extended:
-                            logger.warning(
-                                "Failed to extend lease for job %s (worker %s); lease lost",
-                                job.id,
-                                self.worker_id,
-                            )
-                            lease_lost.set()
+                            with hb_conn.cursor() as cur:
+                                cur.execute(
+                                    "SELECT status, worker_id FROM discovery_jobs WHERE id = %s",
+                                    (str(job.id),),
+                                )
+                                row = cur.fetchone()
+
+                            if row is None:
+                                logger.warning("Job %s was removed from database; stopping", job.id)
+                                lease_lost.set()
+                            elif row[0] == "cancelled":
+                                logger.info(
+                                    "Job %s was cancelled in database; stopping worker execution cleanly",
+                                    job.id,
+                                )
+                                cancelled.set()
+                            elif row[0] == "running" and row[1] != self.worker_id:
+                                logger.warning(
+                                    "Job %s lease was reclaimed by worker %s; lease lost",
+                                    job.id,
+                                    row[1],
+                                )
+                                lease_lost.set()
+                            else:
+                                logger.info(
+                                    "Job %s status changed to %s; stopping worker execution",
+                                    job.id,
+                                    row[0],
+                                )
+                                cancelled.set()
                             break
                 except Exception as exc:
                     logger.warning("Heartbeat error on job %s: %s", job.id, exc)
@@ -198,25 +223,25 @@ class Worker:
                 if lease_lost.is_set():
                     execution_error = "Lease lost during execution"
                     return False
-                if is_cancelled(conn, job.id):
+                if was_cancelled or cancelled.is_set() or is_cancelled(conn, job.id):
                     was_cancelled = True
                     self._close_contexts()
                     return False
 
                 st, cc, jc, ec, err = self._run_source_helper(
-                    conn, job, source, lease_lost, on_batch=_collect_candidate_domains
+                    conn, job, source, lease_lost, cancelled, on_batch=_collect_candidate_domains
                 )
                 total_companies += cc
                 total_jobs += jc
                 total_evidence += ec
                 source_statuses.append(st)
 
-                if lease_lost.is_set():
-                    execution_error = "Lease lost during execution"
-                    return False
-                if is_cancelled(conn, job.id):
+                if was_cancelled or cancelled.is_set() or is_cancelled(conn, job.id):
                     was_cancelled = True
                     self._close_contexts()
+                    return False
+                if lease_lost.is_set():
+                    execution_error = "Lease lost during execution"
                     return False
                 return True
 
@@ -289,7 +314,7 @@ class Worker:
             hb_thread.join(timeout=2.0)
 
             # Determine final status
-            if was_cancelled or is_cancelled(conn, job.id):
+            if was_cancelled or (cancelled is not None and cancelled.is_set()) or is_cancelled(conn, job.id):
                 final_status = DiscoveryStatus.CANCELLED
                 self._close_contexts()
             elif execution_error is not None:
@@ -321,6 +346,7 @@ class Worker:
         job: DiscoveryJob,
         source: Source,
         lease_lost: threading.Event,
+        cancelled: threading.Event | None = None,
         on_batch: Callable[[EvidenceBatch], None] | None = None,
     ) -> tuple[DiscoveryStatus, int, int, int, str | None]:
         started_at = datetime.now(timezone.utc)
@@ -331,6 +357,9 @@ class Worker:
         s_status = DiscoveryStatus.FAILED
         s_error: str | None = None
 
+        def _is_job_cancelled() -> bool:
+            return (cancelled is not None and cancelled.is_set()) or is_cancelled(conn, job.id)
+
         try:
             raw_batches = source.run(job)
 
@@ -338,6 +367,13 @@ class Worker:
                 async def _consume_async() -> None:
                     nonlocal source_comp_count, source_job_count, source_ev_count
                     async for batch in raw_batches:
+                        if _is_job_cancelled():
+                            logger.info(
+                                "Job %s cancelled; halting batch processing for source %s",
+                                job.id,
+                                source.name,
+                            )
+                            break
                         if lease_lost.is_set():
                             raise RuntimeError("Lease lost during batch submission")
                         if not isinstance(batch, EvidenceBatch):
@@ -362,6 +398,9 @@ class Worker:
                     asyncio.run(_consume_async())
 
             elif isinstance(raw_batches, EvidenceBatch):
+                if _is_job_cancelled():
+                    s_status = DiscoveryStatus.CANCELLED
+                    return s_status, source_comp_count, source_job_count, source_ev_count, None
                 if lease_lost.is_set():
                     raise RuntimeError("Lease lost during batch submission")
                 raw_batches = self._resolve_batch_jobs_sync(raw_batches)
@@ -374,6 +413,13 @@ class Worker:
 
             elif isinstance(raw_batches, Iterable) and not isinstance(raw_batches, (str, bytes, dict)):
                 for batch in raw_batches:
+                    if _is_job_cancelled():
+                        logger.info(
+                            "Job %s cancelled; halting batch processing for source %s",
+                            job.id,
+                            source.name,
+                        )
+                        break
                     if lease_lost.is_set():
                         raise RuntimeError("Lease lost during batch submission")
                     if not isinstance(batch, EvidenceBatch):
@@ -386,12 +432,22 @@ class Worker:
                     source_job_count += result.accepted_jobs
                     source_ev_count += result.total_accepted
 
-            s_status = DiscoveryStatus.COMPLETED
+            if _is_job_cancelled():
+                s_status = DiscoveryStatus.CANCELLED
+            else:
+                s_status = DiscoveryStatus.COMPLETED
         except Exception as exc:
-            logger.exception("Error running source %s for job %s: %s", source.name, job.id, exc)
-            s_status = DiscoveryStatus.FAILED
-            s_error = str(exc)
+            if _is_job_cancelled():
+                s_status = DiscoveryStatus.CANCELLED
+                s_error = None
+            else:
+                logger.exception("Error running source %s for job %s: %s", source.name, job.id, exc)
+                s_status = DiscoveryStatus.FAILED
+                s_error = str(exc)
         finally:
+            if _is_job_cancelled():
+                s_status = DiscoveryStatus.CANCELLED
+                s_error = None
             duration_ms = int((time.monotonic() - start_mono) * 1000)
             run_record = DiscoverySourceRun(
                 id=uuid.uuid4(),

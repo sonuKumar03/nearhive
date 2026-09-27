@@ -141,7 +141,7 @@ def finish_job(
         job_count = COALESCE(%(job_count)s, job_count),
         evidence_count = COALESCE(%(evidence_count)s, evidence_count)
     WHERE id = %(job_id)s
-      AND status = 'running'
+      AND (status = 'running' OR status = 'cancelled')
       AND (%(worker_id)s::varchar IS NULL OR worker_id = %(worker_id)s);
     """
     with conn.cursor() as cur:

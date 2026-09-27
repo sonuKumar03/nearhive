@@ -119,6 +119,7 @@ class CompanySiteSource(BaseSourceAdapter):
         fetcher: Callable[[str], Awaitable[str]] | None = None,
         http_client: httpx.AsyncClient | None = None,
         resolve_dns: bool | None = None,
+        playwright_pool: Any | None = None,
     ) -> None:
         self.name: str = "company_site"
         self.target_urls: list[str] = []
@@ -136,6 +137,7 @@ class CompanySiteSource(BaseSourceAdapter):
         self.resolve_dns: bool = (
             resolve_dns if resolve_dns is not None else (fetcher is None)
         )
+        self.playwright_pool = playwright_pool
 
     async def _fetch(self, url: str) -> str:
         validate_public_url(url, resolve_dns=self.resolve_dns)
@@ -145,6 +147,7 @@ class CompanySiteSource(BaseSourceAdapter):
             url,
             client=self._http_client,
             resolve_dns=self.resolve_dns,
+            playwright_pool=self.playwright_pool,
         )
 
     def _parse_sitemap_urls(self, xml_text: str, target_domain: str) -> list[str]:

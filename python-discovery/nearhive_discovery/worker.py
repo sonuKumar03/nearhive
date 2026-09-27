@@ -1,8 +1,10 @@
+import asyncio
+import inspect
 import logging
 import threading
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import AsyncIterable, Iterable
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -15,6 +17,7 @@ from nearhive_discovery.contracts import (
     DiscoveryStatus,
     EvidenceBatch,
 )
+from nearhive_discovery.http import PlaywrightPool
 from nearhive_discovery.queue import (
     claim_job,
     finish_job,
@@ -48,6 +51,8 @@ class Worker:
         lease_seconds: int = settings.lease_seconds,
         heartbeat_interval_seconds: float = settings.heartbeat_interval_seconds,
         poll_interval_seconds: float = settings.poll_interval_seconds,
+        playwright_contexts: int = settings.playwright_contexts,
+        playwright_pool: Any | None = None,
     ) -> None:
         self.db_url = db_url
         self.client = client if client is not None else IngestionClient(
@@ -59,6 +64,12 @@ class Worker:
         self.lease_seconds = lease_seconds
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.poll_interval_seconds = poll_interval_seconds
+        self.playwright_contexts = playwright_contexts
+        self.playwright_pool = (
+            playwright_pool
+            if playwright_pool is not None
+            else PlaywrightPool(max_contexts=playwright_contexts)
+        )
 
     def run_once(self) -> bool:
         """Attempts to claim and execute one discovery job.
@@ -124,6 +135,7 @@ class Worker:
                 if is_cancelled(conn, job.id):
                     logger.info("Job %s cancelled; halting before source %s", job.id, source.name)
                     was_cancelled = True
+                    self._close_contexts()
                     break
 
                 started_at = datetime.now(timezone.utc)
@@ -139,6 +151,20 @@ class Worker:
                     batch_iter: Iterable[EvidenceBatch]
                     if isinstance(raw_batches, EvidenceBatch):
                         batch_iter = [raw_batches]
+                    elif inspect.isasyncgen(raw_batches) or isinstance(
+                        raw_batches, AsyncIterable
+                    ):
+                        async def _collect() -> list[EvidenceBatch]:
+                            collected = []
+                            async for b in raw_batches:
+                                collected.append(b)
+                            return collected
+
+                        try:
+                            loop = asyncio.get_running_loop()
+                            batch_iter = loop.run_until_complete(_collect())
+                        except RuntimeError:
+                            batch_iter = asyncio.run(_collect())
                     elif isinstance(raw_batches, Iterable) and not isinstance(
                         raw_batches, (str, bytes, dict)
                     ):
@@ -197,6 +223,7 @@ class Worker:
                 if is_cancelled(conn, job.id):
                     logger.info("Job %s cancelled after source %s", job.id, source.name)
                     was_cancelled = True
+                    self._close_contexts()
                     break
 
         except Exception as exc:
@@ -209,6 +236,7 @@ class Worker:
             # Determine final status
             if was_cancelled or is_cancelled(conn, job.id):
                 final_status = DiscoveryStatus.CANCELLED
+                self._close_contexts()
             elif execution_error is not None:
                 final_status = DiscoveryStatus.FAILED
             elif not source_statuses:
@@ -232,6 +260,38 @@ class Worker:
             )
             logger.info("Job %s finalized with status %s (updated=%s)", job.id, final_status, updated)
 
+    def _close_contexts(self) -> None:
+        """Closes active Playwright contexts on job cancellation."""
+        if self.playwright_pool is not None:
+            close_ctx = getattr(self.playwright_pool, "close_contexts", None)
+            if callable(close_ctx):
+                try:
+                    res = close_ctx()
+                    if inspect.isawaitable(res):
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(res)
+                        except RuntimeError:
+                            asyncio.run(res)
+                except Exception as exc:
+                    logger.debug("Error closing playwright contexts: %s", exc)
+
+    def close(self) -> None:
+        """Cleanly releases worker resources including Playwright browser contexts."""
+        if self.playwright_pool is not None:
+            close_fn = getattr(self.playwright_pool, "close", None)
+            if callable(close_fn):
+                try:
+                    res = close_fn()
+                    if inspect.isawaitable(res):
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(res)
+                        except RuntimeError:
+                            asyncio.run(res)
+                except Exception as exc:
+                    logger.debug("Error closing playwright pool: %s", exc)
+
     def run(
         self,
         poll_interval: float | None = None,
@@ -242,18 +302,22 @@ class Worker:
         jobs_processed = 0
 
         logger.info("Starting worker loop on %s...", self.worker_id)
-        while True:
-            if stop_event is not None and stop_event.is_set():
-                break
-            if max_jobs is not None and jobs_processed >= max_jobs:
-                break
+        try:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if max_jobs is not None and jobs_processed >= max_jobs:
+                    break
 
-            handled = self.run_once()
-            if handled:
-                jobs_processed += 1
-            else:
-                if stop_event is not None:
-                    if stop_event.wait(interval):
-                        break
+                handled = self.run_once()
+                if handled:
+                    jobs_processed += 1
                 else:
-                    time.sleep(interval)
+                    if stop_event is not None:
+                        if stop_event.wait(interval):
+                            break
+                    else:
+                        time.sleep(interval)
+        finally:
+            self.close()
+

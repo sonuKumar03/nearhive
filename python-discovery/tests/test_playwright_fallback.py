@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from scrapy.http import HtmlResponse, Request, Response
@@ -279,6 +280,71 @@ class TestBoundedPlaywrightPool:
             resolve_dns=False,
         )
 
+    def test_pool_across_multiple_sequential_asyncio_runs_does_not_deadlock(self) -> None:
+        """Verifies PlaywrightPool survives across multiple independent asyncio.run() invocations without deadlock."""
+        pool = PlaywrightPool(max_contexts=2, headless=True)
+        try:
+            # 1st independent asyncio.run loop
+            res1 = asyncio.run(pool.render_html("<html><body><h1>Run One</h1></body></html>"))
+            assert "Run One" in res1
+
+            # 2nd independent asyncio.run loop
+            res2 = asyncio.run(pool.render_html("<html><body><h1>Run Two</h1></body></html>"))
+            assert "Run Two" in res2
+
+            # 3rd independent asyncio.run loop
+            res3 = asyncio.run(pool.render_html("<html><body><h1>Run Three</h1></body></html>"))
+            assert "Run Three" in res3
+        finally:
+            # Close in a 4th independent loop
+            asyncio.run(pool.close())
+
+    @pytest.mark.asyncio
+    async def test_safe_fetch_text_temporary_pool_closed_without_leak(self, js_company_html: str) -> None:
+        """Verifies temporary PlaywrightPool created by safe_fetch_text is closed on exit."""
+        from nearhive_discovery.http import safe_fetch_text
+        import httpx
+
+        transport = httpx.MockTransport(lambda req: httpx.Response(200, text=js_company_html))
+        client = httpx.AsyncClient(transport=transport)
+
+        close_called = []
+        original_close = PlaywrightPool.close
+
+        async def tracking_close(pool_self: Any) -> None:
+            close_called.append(True)
+            await original_close(pool_self)
+
+        with patch.object(PlaywrightPool, "render_page", new_callable=AsyncMock) as mock_render:
+            mock_render.return_value = "<html><body><h1>Acme Robotics</h1></body></html>"
+            with patch.object(PlaywrightPool, "close", tracking_close):
+                res = await safe_fetch_text(
+                    "https://example.com/spa",
+                    client=client,
+                    resolve_dns=False,
+                    render_js=True,
+                    playwright_pool=None,
+                )
+                assert "Acme Robotics" in res
+                assert len(close_called) == 1
+
+    def test_crawl_settings_scrapy_playwright_handlers_and_reactor(self) -> None:
+        crawl_settings = get_crawl_settings()
+        assert (
+            crawl_settings.get("TWISTED_REACTOR")
+            == "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
+        )
+        handlers = crawl_settings.get("DOWNLOAD_HANDLERS")
+        assert isinstance(handlers, dict)
+        assert (
+            handlers.get("http")
+            == "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler"
+        )
+        assert (
+            handlers.get("https")
+            == "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler"
+        )
+
 
 class TestWorkerPlaywrightIntegration:
     """Tests worker lifecycle and fault isolation with Playwright fallback."""
@@ -291,4 +357,21 @@ class TestWorkerPlaywrightIntegration:
         )
         worker.close()
         mock_pool.close.assert_called_once()
+
+    def test_worker_propagates_playwright_pool_to_sources(self) -> None:
+        from nearhive_discovery.sources.company_site import CompanySiteSource
+
+        source = CompanySiteSource(target_url="https://example.com")
+        assert source.playwright_pool is None
+
+        mock_pool = MagicMock(spec=PlaywrightPool)
+        worker = Worker(
+            db_url="postgres://nearhive:password@localhost:5432/nearhive?sslmode=disable",
+            sources=[source],
+            playwright_pool=mock_pool,
+        )
+
+        assert source.playwright_pool is mock_pool
+        worker.close()
+
 

@@ -59,7 +59,6 @@ class Worker:
             base_url=settings.api_base_url,
             worker_token=settings.worker_token,
         )
-        self.sources: list[Source] = sources if sources is not None else []
         self.worker_id = worker_id if worker_id is not None else settings.worker_id
         self.lease_seconds = lease_seconds
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
@@ -70,6 +69,16 @@ class Worker:
             if playwright_pool is not None
             else PlaywrightPool(max_contexts=playwright_contexts)
         )
+        self.sources: list[Source] = sources if sources is not None else []
+        try:
+            for s in self.sources:
+                if hasattr(s, "playwright_pool") and getattr(s, "playwright_pool") is None:
+                    try:
+                        s.playwright_pool = self.playwright_pool
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def run_once(self) -> bool:
         """Attempts to claim and execute one discovery job.

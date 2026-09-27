@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import re
 import socket
+import threading
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any
@@ -381,18 +382,34 @@ class PlaywrightPool:
         self.timeout = timeout
         self.resolve_dns = resolve_dns
         self.user_agent = user_agent
+
+        # Persistent background thread with dedicated event loop to avoid event loop binding deadlocks
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            daemon=True,
+            name="PlaywrightPool-Thread",
+        )
+        self._thread.start()
+
+        # State managed inside self._loop
         self._playwright: Any = None
         self._browser: Any = None
         self._contexts: set[Any] = set()
         self._semaphore: asyncio.Semaphore | None = None
-        self._lock = asyncio.Lock()
+        self._init_lock: asyncio.Lock | None = None
+        self._is_closed = False
 
-    @property
-    def active_contexts_count(self) -> int:
-        return len(self._contexts)
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
 
-    async def _ensure_browser(self) -> None:
-        async with self._lock:
+    async def _init_resources(self) -> None:
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._is_closed:
+                raise PlaywrightRenderError("PlaywrightPool is closed")
             if self._playwright is None:
                 from playwright.async_api import async_playwright
 
@@ -405,8 +422,12 @@ class PlaywrightPool:
             if self._semaphore is None:
                 self._semaphore = asyncio.Semaphore(self.max_contexts)
 
-    async def acquire_context(self) -> Any:
-        await self._ensure_browser()
+    @property
+    def active_contexts_count(self) -> int:
+        return len(self._contexts)
+
+    async def _acquire_context_internal(self) -> Any:
+        await self._init_resources()
         assert self._semaphore is not None
         await self._semaphore.acquire()
         try:
@@ -417,7 +438,7 @@ class PlaywrightPool:
             self._semaphore.release()
             raise
 
-    async def release_context(self, ctx: Any) -> None:
+    async def _release_context_internal(self, ctx: Any) -> None:
         if ctx in self._contexts:
             self._contexts.discard(ctx)
             try:
@@ -427,34 +448,76 @@ class PlaywrightPool:
             if self._semaphore is not None:
                 self._semaphore.release()
 
-    async def close_contexts(self) -> None:
+    async def acquire_context(self) -> Any:
+        fut = asyncio.run_coroutine_threadsafe(
+            self._acquire_context_internal(), self._loop
+        )
+        return await asyncio.wrap_future(fut)
+
+    async def release_context(self, ctx: Any) -> None:
+        fut = asyncio.run_coroutine_threadsafe(
+            self._release_context_internal(ctx), self._loop
+        )
+        await asyncio.wrap_future(fut)
+
+    async def _close_contexts_internal(self) -> None:
         for ctx in list(self._contexts):
-            await self.release_context(ctx)
+            await self._release_context_internal(ctx)
+
+    async def close_contexts(self) -> None:
+        if self._loop.is_running():
+            fut = asyncio.run_coroutine_threadsafe(
+                self._close_contexts_internal(), self._loop
+            )
+            await asyncio.wrap_future(fut)
+
+    async def _close_internal(self) -> None:
+        self._is_closed = True
+        await self._close_contexts_internal()
+        if self._browser is not None:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+        if self._playwright is not None:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
 
     async def close(self) -> None:
-        await self.close_contexts()
-        async with self._lock:
-            if self._browser is not None:
-                try:
-                    await self._browser.close()
-                except Exception:
-                    pass
-                self._browser = None
-            if self._playwright is not None:
-                try:
-                    await self._playwright.stop()
-                except Exception:
-                    pass
-                self._playwright = None
+        if self._loop.is_running():
+            fut = asyncio.run_coroutine_threadsafe(
+                self._close_internal(), self._loop
+            )
+            try:
+                await asyncio.wrap_future(fut)
+            finally:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+                self._thread.join(timeout=3.0)
 
-    async def render_html(
+    def close_sync(self) -> None:
+        if self._loop.is_running():
+            fut = asyncio.run_coroutine_threadsafe(
+                self._close_internal(), self._loop
+            )
+            try:
+                fut.result(timeout=5.0)
+            except Exception:
+                pass
+            finally:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+                self._thread.join(timeout=3.0)
+
+    async def _render_html_internal(
         self,
         html: str,
         wait_until: str = "domcontentloaded",
         timeout: float | None = None,
     ) -> str:
-        """Renders raw HTML in an isolated browser context and returns the populated DOM content."""
-        ctx = await self.acquire_context()
+        ctx = await self._acquire_context_internal()
         try:
             page = await ctx.new_page()
             t_ms = int((timeout if timeout is not None else self.timeout) * 1000)
@@ -468,20 +531,28 @@ class PlaywrightPool:
             logger.warning("Error rendering HTML in Playwright: %s", exc)
             raise PlaywrightRenderError(f"Failed to render HTML: {exc}") from exc
         finally:
-            await self.release_context(ctx)
+            await self._release_context_internal(ctx)
 
-    async def render_page(
+    async def render_html(
+        self,
+        html: str,
+        wait_until: str = "domcontentloaded",
+        timeout: float | None = None,
+    ) -> str:
+        fut = asyncio.run_coroutine_threadsafe(
+            self._render_html_internal(html, wait_until=wait_until, timeout=timeout),
+            self._loop,
+        )
+        return await asyncio.wrap_future(fut)
+
+    async def _render_page_internal(
         self,
         url: str,
         wait_until: str = "domcontentloaded",
         timeout: float | None = None,
-        resolve_dns: bool | None = None,
+        resolve_dns: bool = True,
     ) -> str:
-        """Navigates to a public URL in an isolated browser context, validating SSRF and returning rendered HTML."""
-        resolve = self.resolve_dns if resolve_dns is None else resolve_dns
-        validate_public_url(url, resolve_dns=resolve)
-
-        ctx = await self.acquire_context()
+        ctx = await self._acquire_context_internal()
 
         async def handle_route(route: Any) -> None:
             req_url = route.request.url
@@ -489,7 +560,7 @@ class PlaywrightPool:
                 await route.continue_()
                 return
             try:
-                validate_public_url(req_url, resolve_dns=resolve)
+                validate_public_url(req_url, resolve_dns=resolve_dns)
                 await route.continue_()
             except SSRFError as s_exc:
                 logger.warning(
@@ -511,7 +582,7 @@ class PlaywrightPool:
                     f"Page navigation timed out or failed: {exc}"
                 ) from exc
 
-            validate_public_url(page.url, resolve_dns=resolve)
+            validate_public_url(page.url, resolve_dns=resolve_dns)
 
             try:
                 await page.wait_for_load_state("networkidle", timeout=min(3000, t_ms))
@@ -528,7 +599,27 @@ class PlaywrightPool:
                 self._browser = None
             raise PlaywrightRenderError(f"Rendering failed for {url}: {exc}") from exc
         finally:
-            await self.release_context(ctx)
+            await self._release_context_internal(ctx)
+
+    async def render_page(
+        self,
+        url: str,
+        wait_until: str = "domcontentloaded",
+        timeout: float | None = None,
+        resolve_dns: bool | None = None,
+    ) -> str:
+        resolve = self.resolve_dns if resolve_dns is None else resolve_dns
+        validate_public_url(url, resolve_dns=resolve)
+        fut = asyncio.run_coroutine_threadsafe(
+            self._render_page_internal(
+                url,
+                wait_until=wait_until,
+                timeout=timeout,
+                resolve_dns=resolve,
+            ),
+            self._loop,
+        )
+        return await asyncio.wrap_future(fut)
 
 
 async def safe_fetch_text(
@@ -574,20 +665,26 @@ async def safe_fetch_text(
 
             # Check if Playwright fallback is requested or needed
             if render_js or (playwright_pool is not None and should_render(text)):
-                pool = (
-                    playwright_pool
-                    if playwright_pool is not None
-                    else PlaywrightPool(
+                owns_pool = False
+                if playwright_pool is not None:
+                    pool = playwright_pool
+                else:
+                    pool = PlaywrightPool(
                         timeout=timeout,
                         resolve_dns=resolve_dns,
                         user_agent=user_agent,
                     )
-                )
-                return await pool.render_page(
-                    current_url,
-                    timeout=timeout,
-                    resolve_dns=resolve_dns,
-                )
+                    owns_pool = True
+
+                try:
+                    return await pool.render_page(
+                        current_url,
+                        timeout=timeout,
+                        resolve_dns=resolve_dns,
+                    )
+                finally:
+                    if owns_pool:
+                        await pool.close()
 
             return text
 
@@ -610,6 +707,11 @@ DEFAULT_CRAWL_SETTINGS: dict[str, Any] = {
     "AUTOTHROTTLE_START_DELAY": 1.0,
     "AUTOTHROTTLE_MAX_DELAY": 10.0,
     "AUTOTHROTTLE_TARGET_CONCURRENCY": 1.0,
+    "TWISTED_REACTOR": "twisted.internet.asyncioreactor.AsyncioSelectorReactor",
+    "DOWNLOAD_HANDLERS": {
+        "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+        "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+    },
     "PLAYWRIGHT_BROWSER_TYPE": "chromium",
     "PLAYWRIGHT_MAX_CONTEXTS": 2,
     "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True},
@@ -635,4 +737,5 @@ def create_scrapy_settings(overrides: dict[str, Any] | None = None) -> Settings:
     s = Settings()
     s.update(get_crawl_settings(overrides))
     return s
+
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
@@ -61,7 +61,6 @@ func (s *PostgresStore) DB() *sql.DB {
 func (s *PostgresStore) SqlxDB() *sqlx.DB {
 	return s.db
 }
-
 
 // UserStore implementation
 func (s *PostgresStore) CreateUser(ctx context.Context, u *model.User) error {
@@ -175,9 +174,12 @@ func (s *PostgresStore) CreateLocation(ctx context.Context, l *model.Location) e
 	now := time.Now()
 	l.CreatedAt = now
 	l.UpdatedAt = now
-	query := `INSERT INTO locations (id, company_id, label, address, city, state, country, pincode, coords, confidence, verified, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, $13, $14)`
-	_, err := s.db.ExecContext(ctx, query, l.ID, l.CompanyID, l.Label, l.Address, l.City, l.State, l.Country, l.Pincode, l.Lng, l.Lat, l.Confidence, l.Verified, l.CreatedAt, l.UpdatedAt)
+	if l.PresenceType == "" {
+		l.PresenceType = model.PresenceTypeProbableOffice
+	}
+	query := `INSERT INTO locations (id, company_id, label, address, city, state, country, pincode, coords, confidence, presence_type, verified, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, $13, $14, $15)`
+	_, err := s.db.ExecContext(ctx, query, l.ID, l.CompanyID, l.Label, l.Address, l.City, l.State, l.Country, l.Pincode, l.Lng, l.Lat, l.Confidence, string(l.PresenceType), l.Verified, l.CreatedAt, l.UpdatedAt)
 	return err
 }
 
@@ -185,7 +187,7 @@ func (s *PostgresStore) GetLocationsByCompany(ctx context.Context, companyID uui
 	var locs []model.Location
 	query := `SELECT id, company_id, label, address, city, state, country, pincode,
 	                 ST_Y(coords::geometry) as lat, ST_X(coords::geometry) as lng,
-	                 confidence, verified, created_at, updated_at
+	                 confidence, presence_type, verified, created_at, updated_at
 	          FROM locations WHERE company_id = $1`
 	err := s.db.SelectContext(ctx, &locs, query, companyID)
 	return locs, err
@@ -195,7 +197,7 @@ func (s *PostgresStore) FindNearbyLocation(ctx context.Context, companyID uuid.U
 	var l model.Location
 	query := `SELECT id, company_id, label, address, city, state, country, pincode,
 	                 ST_Y(coords::geometry) as lat, ST_X(coords::geometry) as lng,
-	                 confidence, verified, created_at, updated_at
+	                 confidence, presence_type, verified, created_at, updated_at
 	          FROM locations 
 	          WHERE company_id = $1 
 	            AND ST_DWithin(coords, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
@@ -220,6 +222,11 @@ func (s *PostgresStore) UpdateLocationCoords(ctx context.Context, id uuid.UUID, 
 	return err
 }
 
+type searchCompanyRow struct {
+	model.CompanySearchResult
+	ArrangementsRaw pq.StringArray `db:"arrangements_raw"`
+}
+
 func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
 	limit := opts.Limit
 	if limit <= 0 || limit > 100 {
@@ -232,9 +239,23 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	       ST_Y(l.coords::geometry) AS lat, ST_X(l.coords::geometry) AS lng,
 	       l.confidence,
 	       ST_Distance(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_m,
+	       COALESCE(l.presence_type, 'probable_office') AS presence_type,
+	       COALESCE(j.recent_technical_job_count, 0) AS recent_technical_job_count,
+	       COALESCE(j.arrangements, '{}') AS arrangements_raw,
 	       l.verified
 	FROM locations l
 	JOIN companies c ON c.id = l.company_id
+	LEFT JOIN LATERAL (
+	    SELECT 
+	        COUNT(*)::int AS recent_technical_job_count,
+	        ARRAY_AGG(DISTINCT tj.work_arrangement ORDER BY tj.work_arrangement) AS arrangements
+	    FROM technical_job_postings tj
+	    WHERE tj.company_id = c.id
+	      AND tj.is_active = TRUE
+	      AND tj.posted_at IS NOT NULL
+	      AND tj.posted_at >= NOW() - INTERVAL '14 days'
+	      AND (tj.publication_state = 'posted_recently' OR (tj.posted_at_confidence > 0 AND tj.publication_state NOT IN ('observed_recently', 'stale')))
+	) j ON TRUE
 	WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	  AND ($4::float IS NULL OR l.confidence >= $4)
 	  AND ($5::text IS NULL OR c.industry ILIKE '%' || $5 || '%')
@@ -243,9 +264,28 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	LIMIT $7 OFFSET $8
 	`
 
-	var results []model.CompanySearchResult
-	err := s.db.SelectContext(ctx, &results, query, lng, lat, radiusMeters, opts.MinConfidence, opts.Industry, opts.Query, limit, opts.Offset)
-	return results, err
+	var rows []searchCompanyRow
+	err := s.db.SelectContext(ctx, &rows, query, lng, lat, radiusMeters, opts.MinConfidence, opts.Industry, opts.Query, limit, opts.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]model.CompanySearchResult, len(rows))
+	for i, row := range rows {
+		results[i] = row.CompanySearchResult
+		if len(row.ArrangementsRaw) > 0 {
+			arrs := make([]model.WorkArrangement, len(row.ArrangementsRaw))
+			for j, a := range row.ArrangementsRaw {
+				arrs[j] = model.WorkArrangement(a)
+			}
+			results[i].Arrangements = arrs
+		}
+	}
+	return results, nil
+}
+
+func (s *PostgresStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
+	return s.Search(ctx, lat, lng, radiusMeters, opts)
 }
 
 func (s *PostgresStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
@@ -316,8 +356,13 @@ func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sighti
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareNamedContext(ctx, `
-		INSERT INTO sightings (id, source, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at)
-		VALUES (:id, :source, :source_url, :company_name, :raw_address, :lat, :lng, :metadata, :company_id, :location_id, :scraped_at)
+		INSERT INTO sightings (id, source, source_family, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at)
+		VALUES (:id, :source, :source_family, :source_url, :company_name, :raw_address, :lat, :lng, :metadata, :company_id, :location_id, :scraped_at)
+		ON CONFLICT (id) DO UPDATE SET
+			source = EXCLUDED.source,
+			source_family = COALESCE(NULLIF(EXCLUDED.source_family, ''), sightings.source_family),
+			company_id = COALESCE(EXCLUDED.company_id, sightings.company_id),
+			location_id = COALESCE(EXCLUDED.location_id, sightings.location_id)
 	`)
 	if err != nil {
 		return err
@@ -339,12 +384,13 @@ func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sighti
 		}
 	}
 
+
 	return tx.Commit()
 }
 
 func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	var sightings []model.Sighting
-	query := `SELECT id, source, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at
+	query := `SELECT id, source, source_family, source_record_id, content_hash, discovery_job_id, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, first_seen_at, last_seen_at, scraped_at
 	          FROM sightings WHERE company_id = $1 ORDER BY scraped_at DESC`
 	err := s.db.SelectContext(ctx, &sightings, query, companyID)
 	return sightings, err
@@ -390,6 +436,7 @@ func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.Sc
 	if err == nil {
 		job.Tasks = tasks
 	}
+	job.ComputeRuntime()
 	return &job, nil
 }
 
@@ -406,6 +453,7 @@ func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]mode
 			tasks = []model.ScrapeTask{}
 		}
 		jobs[i].Tasks = tasks
+		jobs[i].ComputeRuntime()
 	}
 	return jobs, nil
 }
@@ -438,6 +486,9 @@ func (s *PostgresStore) GetTasksByJobID(ctx context.Context, jobID uuid.UUID) ([
 	}
 	if tasks == nil {
 		tasks = []model.ScrapeTask{}
+	}
+	for i := range tasks {
+		tasks[i].ComputeRuntime()
 	}
 	return tasks, nil
 }

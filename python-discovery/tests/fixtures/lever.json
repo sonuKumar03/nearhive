@@ -1,0 +1,82 @@
+[
+  {
+    "id": "lev-201",
+    "text": "Principal Backend Engineer",
+    "createdAt": 1790380800000,
+    "hostedUrl": "https://jobs.lever.co/apexcloud/lev-201",
+    "applyUrl": "https://jobs.lever.co/apexcloud/lev-201/apply",
+    "categories": {
+      "commitment": "Full time",
+      "department": "Engineering",
+      "team": "Backend",
+      "location": "San Francisco, CA",
+      "workplaceType": "hybrid"
+    },
+    "descriptionPlain": "Design and architect high-throughput distributed systems in Go and Rust.",
+    "description": "<div>Design and architect high-throughput distributed systems in Go and Rust.</div>"
+  },
+  {
+    "id": "lev-202",
+    "text": "Site Reliability Engineer",
+    "createdAt": 1790294400000,
+    "hostedUrl": "https://jobs.lever.co/apexcloud/lev-202",
+    "applyUrl": "https://jobs.lever.co/apexcloud/lev-202/apply",
+    "categories": {
+      "commitment": "Full time",
+      "department": "Engineering",
+      "team": "Platform",
+      "location": "Remote",
+      "workplaceType": "remote"
+    },
+    "descriptionPlain": "Keep our 99.999% cloud uptime across AWS and GCP regions.",
+    "description": "<div>Keep our 99.999% cloud uptime across AWS and GCP regions.</div>"
+  },
+  {
+    "id": "lev-203",
+    "text": "QA Automation Engineer",
+    "createdAt": 1785000000000,
+    "hostedUrl": "https://jobs.lever.co/apexcloud/lev-203",
+    "applyUrl": "https://jobs.lever.co/apexcloud/lev-203/apply",
+    "categories": {
+      "commitment": "Full time",
+      "department": "Engineering",
+      "team": "QA",
+      "location": "San Francisco, CA",
+      "workplaceType": "on-site"
+    },
+    "descriptionPlain": "Develop automated regression test suites and CI/CD pipelines.",
+    "description": "<div>Develop automated regression test suites and CI/CD pipelines.</div>"
+  },
+  {
+    "id": "lev-204",
+    "text": "Locomotive Engineer",
+    "createdAt": 1790380800000,
+    "hostedUrl": "https://jobs.lever.co/apexcloud/lev-204",
+    "applyUrl": "https://jobs.lever.co/apexcloud/lev-204/apply",
+    "categories": {
+      "commitment": "Full time",
+      "department": "Operations",
+      "team": "Logistics",
+      "location": "Chicago, IL",
+      "workplaceType": "on-site"
+    },
+    "descriptionPlain": "Operate transport rail systems for physical data center transit.",
+    "description": "<div>Operate transport rail systems for physical data center transit.</div>"
+  },
+  {
+    "id": "lev-205",
+    "text": "Staff Accountant",
+    "createdAt": 1790380800000,
+    "hostedUrl": "https://jobs.lever.co/apexcloud/lev-205",
+    "applyUrl": "https://jobs.lever.co/apexcloud/lev-205/apply",
+    "categories": {
+      "commitment": "Full time",
+      "department": "Finance",
+      "team": "Accounting",
+      "location": "San Francisco, CA",
+      "workplaceType": "hybrid"
+    },
+    "descriptionPlain": "Manage monthly ledger closing, payroll, and AP/AR.",
+    "description": "<div>Manage monthly ledger closing, payroll, and AP/AR.</div>"
+  }
+]

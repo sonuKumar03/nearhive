@@ -1,8 +1,11 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
@@ -15,18 +18,72 @@ type SearchHandler struct {
 }
 
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
-	latStr := r.URL.Query().Get("lat")
-	lngStr := r.URL.Query().Get("lng")
-	if latStr == "" || lngStr == "" {
-		JSONError(w, http.StatusBadRequest, "lat and lng query parameters are required", "VALIDATION_ERROR", nil)
-		return
+	var lat, lng float64
+	var latSet, lngSet bool
+	radiusKM := 15.0
+	var opts store.SearchOpts
+	limit := 50
+	page := 1
+
+	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var req struct {
+			Lat           *float64 `json:"lat"`
+			Lng           *float64 `json:"lng"`
+			Radius        *float64 `json:"radius"`
+			RadiusKM      *float64 `json:"radius_km"`
+			MinConfidence *float64 `json:"min_confidence"`
+			Industry      *string  `json:"industry"`
+			Query         *string  `json:"q"`
+			Limit         *int     `json:"limit"`
+			Page          *int     `json:"page"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			if req.Lat != nil {
+				lat = *req.Lat
+				latSet = true
+			}
+			if req.Lng != nil {
+				lng = *req.Lng
+				lngSet = true
+			}
+			if req.RadiusKM != nil && *req.RadiusKM > 0 && *req.RadiusKM <= 100 {
+				radiusKM = *req.RadiusKM
+			} else if req.Radius != nil && *req.Radius > 0 && *req.Radius <= 100 {
+				radiusKM = *req.Radius
+			}
+			if req.MinConfidence != nil {
+				opts.MinConfidence = req.MinConfidence
+			}
+			if req.Industry != nil && *req.Industry != "" {
+				opts.Industry = req.Industry
+			}
+			if req.Query != nil && *req.Query != "" {
+				opts.Query = req.Query
+			}
+			if req.Limit != nil && *req.Limit > 0 && *req.Limit <= 100 {
+				limit = *req.Limit
+			}
+			if req.Page != nil && *req.Page > 0 {
+				page = *req.Page
+			}
+		}
 	}
 
-	lat, err1 := strconv.ParseFloat(latStr, 64)
-	lng, err2 := strconv.ParseFloat(lngStr, 64)
-	if err1 != nil || err2 != nil {
-		JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
-		return
+	if !latSet || !lngSet {
+		latStr := r.URL.Query().Get("lat")
+		lngStr := r.URL.Query().Get("lng")
+		if latStr == "" || lngStr == "" {
+			JSONError(w, http.StatusBadRequest, "lat and lng query parameters are required", "VALIDATION_ERROR", nil)
+			return
+		}
+
+		var err1, err2 error
+		lat, err1 = strconv.ParseFloat(latStr, 64)
+		lng, err2 = strconv.ParseFloat(lngStr, 64)
+		if err1 != nil || err2 != nil {
+			JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
+			return
+		}
 	}
 
 	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
@@ -34,14 +91,12 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	radiusKM := 15.0
 	if rStr := r.URL.Query().Get("radius"); rStr != "" {
 		if rVal, err := strconv.ParseFloat(rStr, 64); err == nil && rVal > 0 && rVal <= 100 {
 			radiusKM = rVal
 		}
 	}
 
-	var opts store.SearchOpts
 	if confStr := r.URL.Query().Get("min_confidence"); confStr != "" {
 		if confVal, err := strconv.ParseFloat(confStr, 64); err == nil {
 			opts.MinConfidence = &confVal
@@ -54,7 +109,6 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		opts.Query = &q
 	}
 
-	limit := 50
 	if lStr := r.URL.Query().Get("limit"); lStr != "" {
 		if lVal, err := strconv.Atoi(lStr); err == nil && lVal > 0 && lVal <= 100 {
 			limit = lVal
@@ -62,7 +116,6 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	opts.Limit = limit
 
-	page := 1
 	if pStr := r.URL.Query().Get("page"); pStr != "" {
 		if pVal, err := strconv.Atoi(pStr); err == nil && pVal > 0 {
 			page = pVal
@@ -161,5 +214,97 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		"clusters": clusters,
+	})
+}
+
+func (h *SearchHandler) SearchJobs(w http.ResponseWriter, r *http.Request) {
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	if latStr == "" || lngStr == "" {
+		JSONError(w, http.StatusBadRequest, "lat and lng query parameters are required", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	lat, err1 := strconv.ParseFloat(latStr, 64)
+	lng, err2 := strconv.ParseFloat(lngStr, 64)
+	if err1 != nil || err2 != nil {
+		JSONError(w, http.StatusBadRequest, "lat and lng must be valid numbers", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		JSONError(w, http.StatusBadRequest, "latitude must be between -90 and 90, longitude between -180 and 180", "VALIDATION_ERROR", nil)
+		return
+	}
+
+	radiusKM := 15.0
+	if rStr := r.URL.Query().Get("radius"); rStr != "" {
+		if rVal, err := strconv.ParseFloat(rStr, 64); err == nil && rVal > 0 && rVal <= 100 {
+			radiusKM = rVal
+		}
+	}
+
+	var opts store.TechnicalJobSearchOpts
+
+	if q := r.URL.Query().Get("q"); q != "" {
+		opts.Query = &q
+	}
+
+	if arrStr := r.URL.Query().Get("work_arrangement"); arrStr != "" {
+		switch arrStr {
+		case "in_office", "onsite":
+			arr := model.WorkArrangementInOffice
+			opts.WorkArrangement = &arr
+		case "hybrid":
+			arr := model.WorkArrangementHybrid
+			opts.WorkArrangement = &arr
+		case "remote":
+			arr := model.WorkArrangementRemote
+			opts.WorkArrangement = &arr
+		case "unknown":
+			arr := model.WorkArrangementUnknown
+			opts.WorkArrangement = &arr
+		default:
+			JSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid work_arrangement '%s'", arrStr), "VALIDATION_ERROR", nil)
+			return
+		}
+	}
+
+	limit := 50
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if lVal, err := strconv.Atoi(lStr); err == nil && lVal > 0 && lVal <= 100 {
+			limit = lVal
+		}
+	}
+	opts.Limit = limit
+
+	page := 1
+	if pStr := r.URL.Query().Get("page"); pStr != "" {
+		if pVal, err := strconv.Atoi(pStr); err == nil && pVal > 0 {
+			page = pVal
+		}
+	}
+	opts.Offset = (page - 1) * limit
+
+	results, err := h.store.SearchTechnicalJobs(r.Context(), lat, lng, radiusKM*1000, opts)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to query technical jobs", "INTERNAL_ERROR", nil)
+		return
+	}
+
+	total, _ := h.store.CountTechnicalJobSearch(r.Context(), lat, lng, radiusKM*1000, opts)
+
+	JSON(w, http.StatusOK, map[string]any{
+		"meta": map[string]any{
+			"total":     total,
+			"page":      page,
+			"limit":     limit,
+			"radius_km": radiusKM,
+			"center": map[string]float64{
+				"lat": lat,
+				"lng": lng,
+			},
+		},
+		"jobs": results,
 	})
 }

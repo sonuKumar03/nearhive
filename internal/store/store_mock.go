@@ -3,34 +3,42 @@ package store
 import (
 	"context"
 	"math"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
 type MockStore struct {
-	mu            sync.RWMutex
-	Users         map[uuid.UUID]*model.User
-	UsersByEmail  map[string]*model.User
-	Companies     map[uuid.UUID]*model.Company
-	Locations     map[uuid.UUID]*model.Location
-	Sightings     map[uuid.UUID]*model.Sighting
-	Jobs          map[uuid.UUID]*model.ScrapeJob
-	Tasks         map[uuid.UUID]*model.ScrapeTask
-	SearchHistory []model.SearchHistory
+	mu                  sync.RWMutex
+	Users               map[uuid.UUID]*model.User
+	UsersByEmail        map[string]*model.User
+	Companies           map[uuid.UUID]*model.Company
+	Locations           map[uuid.UUID]*model.Location
+	Sightings           map[uuid.UUID]*model.Sighting
+	Jobs                map[uuid.UUID]*model.ScrapeJob
+	Tasks               map[uuid.UUID]*model.ScrapeTask
+	SearchHistory       []model.SearchHistory
+	DiscoveryJobs       map[uuid.UUID]*model.DiscoveryJob
+	DiscoverySourceRuns map[uuid.UUID][]*model.DiscoverySourceRun
+	TechnicalJobs       map[uuid.UUID]*model.TechnicalJobPosting
 }
 
 func NewMockStore() *MockStore {
 	return &MockStore{
-		Users:        make(map[uuid.UUID]*model.User),
-		UsersByEmail: make(map[string]*model.User),
-		Companies:    make(map[uuid.UUID]*model.Company),
-		Locations:    make(map[uuid.UUID]*model.Location),
-		Sightings:    make(map[uuid.UUID]*model.Sighting),
-		Jobs:         make(map[uuid.UUID]*model.ScrapeJob),
-		Tasks:        make(map[uuid.UUID]*model.ScrapeTask),
+		Users:               make(map[uuid.UUID]*model.User),
+		UsersByEmail:        make(map[string]*model.User),
+		Companies:           make(map[uuid.UUID]*model.Company),
+		Locations:           make(map[uuid.UUID]*model.Location),
+		Sightings:           make(map[uuid.UUID]*model.Sighting),
+		Jobs:                make(map[uuid.UUID]*model.ScrapeJob),
+		Tasks:               make(map[uuid.UUID]*model.ScrapeTask),
+		DiscoveryJobs:       make(map[uuid.UUID]*model.DiscoveryJob),
+		DiscoverySourceRuns: make(map[uuid.UUID][]*model.DiscoverySourceRun),
+		TechnicalJobs:       make(map[uuid.UUID]*model.TechnicalJobPosting),
 	}
 }
 
@@ -133,6 +141,9 @@ func (m *MockStore) CreateLocation(_ context.Context, l *model.Location) error {
 	if l.ID == uuid.Nil {
 		l.ID = uuid.New()
 	}
+	if l.PresenceType == "" {
+		l.PresenceType = model.PresenceTypeProbableOffice
+	}
 	m.Locations[l.ID] = l
 	return nil
 }
@@ -172,6 +183,18 @@ func (m *MockStore) UpdateLocationConfidence(_ context.Context, id uuid.UUID, co
 	return nil
 }
 
+func (m *MockStore) UpdateLocationPresence(_ context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if l, ok := m.Locations[id]; ok {
+		l.PresenceType = presence
+		l.Confidence = confidence
+		l.Verified = verified
+	}
+	return nil
+}
+
+
 func (m *MockStore) UpdateLocationCoords(_ context.Context, id uuid.UUID, lat, lng float64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -187,6 +210,8 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 	defer m.mu.RUnlock()
 	var results []model.CompanySearchResult
 
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+
 	for _, l := range m.Locations {
 		c, ok := m.Companies[l.CompanyID]
 		if !ok {
@@ -197,30 +222,129 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 			if opts.MinConfidence != nil && l.Confidence < *opts.MinConfidence {
 				continue
 			}
+			if opts.Industry != nil && *opts.Industry != "" {
+				if c.Industry == nil || !strings.Contains(strings.ToLower(*c.Industry), strings.ToLower(*opts.Industry)) {
+					continue
+				}
+			}
+			if opts.Query != nil && *opts.Query != "" {
+				q := strings.ToLower(*opts.Query)
+				if !strings.Contains(strings.ToLower(c.Name), q) && !strings.Contains(strings.ToLower(c.NormalizedName), q) {
+					continue
+				}
+			}
+			pType := l.PresenceType
+			if pType == "" {
+				pType = model.PresenceTypeProbableOffice
+			}
+
+			recentCount := 0
+			arrangementMap := make(map[model.WorkArrangement]bool)
+			for _, job := range m.TechnicalJobs {
+				if job.CompanyID != c.ID || !job.IsActive {
+					continue
+				}
+				if job.PostedAt == nil || job.PostedAt.Before(fourteenDaysAgo) {
+					continue
+				}
+				isTrustworthy := (job.PublicationState == model.PublicationStatePostedRecently ||
+					(job.PostedAtConfidence > 0 && job.PublicationState != model.PublicationStateObservedRecently)) &&
+					job.PublicationState != model.PublicationStateStale
+				if !isTrustworthy {
+					continue
+				}
+				recentCount++
+				if job.WorkArrangement != "" {
+					arrangementMap[job.WorkArrangement] = true
+				}
+			}
+
+			var arrangements []model.WorkArrangement
+			for arr := range arrangementMap {
+				arrangements = append(arrangements, arr)
+			}
+			sort.Slice(arrangements, func(i, j int) bool {
+				return arrangements[i] < arrangements[j]
+			})
+
 			results = append(results, model.CompanySearchResult{
-				CompanyID:      c.ID,
-				Name:           c.Name,
-				Domain:         c.Domain,
-				Industry:       c.Industry,
-				EmployeeCount:  c.EmployeeCount,
-				LocationID:     l.ID,
-				Label:          l.Label,
-				Address:        l.Address,
-				City:           l.City,
-				Lat:            l.Lat,
-				Lng:            l.Lng,
-				Confidence:     l.Confidence,
-				DistanceMeters: dist,
-				Verified:       l.Verified,
+				CompanyID:               c.ID,
+				Name:                    c.Name,
+				Domain:                  c.Domain,
+				Industry:                c.Industry,
+				EmployeeCount:           c.EmployeeCount,
+				LocationID:              l.ID,
+				Label:                   l.Label,
+				Address:                 l.Address,
+				City:                    l.City,
+				Lat:                     l.Lat,
+				Lng:                     l.Lng,
+				Confidence:              l.Confidence,
+				DistanceMeters:          dist,
+				PresenceType:            pType,
+				RecentTechnicalJobCount: recentCount,
+				Arrangements:            arrangements,
+				Verified:                l.Verified,
 			})
 		}
 	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].DistanceMeters < results[j].DistanceMeters
+	})
+
+	if opts.Offset > 0 {
+		if opts.Offset >= len(results) {
+			return []model.CompanySearchResult{}, nil
+		}
+		results = results[opts.Offset:]
+	}
+
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
 	return results, nil
 }
 
-func (m *MockStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
-	res, err := m.Search(ctx, lat, lng, radiusMeters, opts)
-	return len(res), err
+func (m *MockStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
+	return m.Search(ctx, lat, lng, radiusMeters, opts)
+}
+
+func (m *MockStore) CountSearch(_ context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, l := range m.Locations {
+		c, ok := m.Companies[l.CompanyID]
+		if !ok {
+			continue
+		}
+		dist := haversineDistance(lat, lng, l.Lat, l.Lng)
+		if dist <= radiusMeters {
+			if opts.MinConfidence != nil && l.Confidence < *opts.MinConfidence {
+				continue
+			}
+			if opts.Industry != nil && *opts.Industry != "" {
+				if c.Industry == nil || !strings.Contains(strings.ToLower(*c.Industry), strings.ToLower(*opts.Industry)) {
+					continue
+				}
+			}
+			if opts.Query != nil && *opts.Query != "" {
+				q := strings.ToLower(*opts.Query)
+				if !strings.Contains(strings.ToLower(c.Name), q) && !strings.Contains(strings.ToLower(c.NormalizedName), q) {
+					continue
+				}
+			}
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *MockStore) ClusterSearch(_ context.Context, lat, lng, radiusMeters float64, k int) ([]model.SpatialCluster, error) {
@@ -279,12 +403,23 @@ func (m *MockStore) SaveSightings(_ context.Context, source string, sightings []
 		if s.ID == uuid.Nil {
 			s.ID = uuid.New()
 		}
-		s.Source = source
+		if s.Source == "" {
+			s.Source = source
+		}
+		if s.SourceFamily == "" && s.Metadata != nil {
+			if sf, ok := s.Metadata["source_family"].(string); ok && sf != "" {
+				s.SourceFamily = sf
+			}
+		}
+		if s.SourceFamily == "" {
+			s.SourceFamily = s.Source
+		}
 		sCopy := s
 		m.Sightings[s.ID] = &sCopy
 	}
 	return nil
 }
+
 
 func (m *MockStore) GetSightingsByCompany(_ context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	m.mu.RLock()
@@ -336,9 +471,12 @@ func (m *MockStore) GetJobByID(_ context.Context, id uuid.UUID) (*model.ScrapeJo
 	jobCopy.Tasks = []model.ScrapeTask{}
 	for _, t := range m.Tasks {
 		if t.JobID == id {
-			jobCopy.Tasks = append(jobCopy.Tasks, *t)
+			taskCopy := *t
+			taskCopy.ComputeRuntime()
+			jobCopy.Tasks = append(jobCopy.Tasks, taskCopy)
 		}
 	}
+	jobCopy.ComputeRuntime()
 	return &jobCopy, nil
 }
 
@@ -367,7 +505,9 @@ func (m *MockStore) GetTasksByJobID(_ context.Context, jobID uuid.UUID) ([]model
 	var res []model.ScrapeTask
 	for _, t := range m.Tasks {
 		if t.JobID == jobID {
-			res = append(res, *t)
+			taskCopy := *t
+			taskCopy.ComputeRuntime()
+			res = append(res, taskCopy)
 		}
 	}
 	return res, nil
@@ -378,7 +518,17 @@ func (m *MockStore) ListJobs(_ context.Context, _, _ int) ([]model.ScrapeJob, er
 	defer m.mu.RUnlock()
 	var res []model.ScrapeJob
 	for _, j := range m.Jobs {
-		res = append(res, *j)
+		jobCopy := *j
+		jobCopy.Tasks = []model.ScrapeTask{}
+		for _, t := range m.Tasks {
+			if t.JobID == j.ID {
+				taskCopy := *t
+				taskCopy.ComputeRuntime()
+				jobCopy.Tasks = append(jobCopy.Tasks, taskCopy)
+			}
+		}
+		jobCopy.ComputeRuntime()
+		res = append(res, jobCopy)
 	}
 	return res, nil
 }
@@ -415,3 +565,615 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return R * c
 }
+
+// DiscoveryStore implementation
+
+func (m *MockStore) CreateDiscoveryJob(_ context.Context, job *model.DiscoveryJob) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if job.ID == uuid.Nil {
+		job.ID = uuid.New()
+	}
+	if job.Status == "" {
+		job.Status = model.DiscoveryStatusPending
+	}
+	if job.MaxAttempts <= 0 {
+		job.MaxAttempts = 3
+	}
+	now := time.Now()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+
+	jobCopy := *job
+	m.DiscoveryJobs[job.ID] = &jobCopy
+	return nil
+}
+
+func (m *MockStore) GetDiscoveryJob(_ context.Context, id uuid.UUID, userID uuid.UUID) (*model.DiscoveryJob, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	j, ok := m.DiscoveryJobs[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if userID != uuid.Nil && j.UserID != userID {
+		return nil, ErrNotFound
+	}
+
+	jobCopy := *j
+	jobCopy.SourceRuns = []model.DiscoverySourceRun{}
+	if runs, found := m.DiscoverySourceRuns[id]; found {
+		for _, r := range runs {
+			runCopy := *r
+			runCopy.ComputeRuntime()
+			jobCopy.SourceRuns = append(jobCopy.SourceRuns, runCopy)
+		}
+	}
+	jobCopy.ComputeRuntime()
+	return &jobCopy, nil
+}
+
+func (m *MockStore) ListDiscoveryJobs(_ context.Context, userID uuid.UUID, limit, offset int) ([]model.DiscoveryJob, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var all []model.DiscoveryJob
+	for _, j := range m.DiscoveryJobs {
+		if userID == uuid.Nil || j.UserID == userID {
+			jobCopy := *j
+			jobCopy.SourceRuns = []model.DiscoverySourceRun{}
+			if runs, found := m.DiscoverySourceRuns[j.ID]; found {
+				for _, r := range runs {
+					runCopy := *r
+					runCopy.ComputeRuntime()
+					jobCopy.SourceRuns = append(jobCopy.SourceRuns, runCopy)
+				}
+			}
+			jobCopy.ComputeRuntime()
+			all = append(all, jobCopy)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+
+	if offset >= len(all) {
+		return []model.DiscoveryJob{}, nil
+	}
+
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+
+	return all[offset:end], nil
+}
+
+func (m *MockStore) CancelDiscoveryJob(_ context.Context, id uuid.UUID, userID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	j, ok := m.DiscoveryJobs[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if userID != uuid.Nil && j.UserID != userID {
+		return ErrNotFound
+	}
+
+	if j.Status == model.DiscoveryStatusCancelled {
+		return nil
+	}
+	if j.Status != model.DiscoveryStatusPending && j.Status != model.DiscoveryStatusRunning {
+		return ErrInvalidJobState
+	}
+
+	j.Status = model.DiscoveryStatusCancelled
+	j.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *MockStore) UpsertDiscoverySourceRun(_ context.Context, run *model.DiscoverySourceRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if run.ID == uuid.Nil {
+		run.ID = uuid.New()
+	}
+	now := time.Now()
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = now
+	}
+	run.UpdatedAt = now
+
+	runs := m.DiscoverySourceRuns[run.DiscoveryJobID]
+	for i, existing := range runs {
+		if existing.Source == run.Source {
+			runCopy := *run
+			runCopy.ID = existing.ID
+			runCopy.CreatedAt = existing.CreatedAt
+			runs[i] = &runCopy
+			m.DiscoverySourceRuns[run.DiscoveryJobID] = runs
+			return nil
+		}
+	}
+
+	runCopy := *run
+	m.DiscoverySourceRuns[run.DiscoveryJobID] = append(m.DiscoverySourceRuns[run.DiscoveryJobID], &runCopy)
+	return nil
+}
+
+func (m *MockStore) GetDiscoverySourceRuns(_ context.Context, discoveryJobID uuid.UUID) ([]model.DiscoverySourceRun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	runs, ok := m.DiscoverySourceRuns[discoveryJobID]
+	if !ok {
+		return []model.DiscoverySourceRun{}, nil
+	}
+
+	res := make([]model.DiscoverySourceRun, len(runs))
+	for i, r := range runs {
+		runCopy := *r
+		runCopy.ComputeRuntime()
+		res[i] = runCopy
+	}
+	return res, nil
+}
+
+// TechnicalJobStore implementation
+
+func (m *MockStore) GetTechnicalJobsByCompany(_ context.Context, companyID uuid.UUID, since time.Time) ([]model.TechnicalJobPosting, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var res []model.TechnicalJobPosting
+	for _, job := range m.TechnicalJobs {
+		if job.CompanyID != companyID || !job.IsActive {
+			continue
+		}
+		if !since.IsZero() {
+			if job.PostedAt != nil {
+				if job.PostedAt.Before(since) {
+					continue
+				}
+			} else {
+				if job.LastSeenAt.Before(since) {
+					continue
+				}
+			}
+		}
+		res = append(res, *job)
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		tI := res[i].LastSeenAt
+		if res[i].PostedAt != nil {
+			tI = *res[i].PostedAt
+		}
+		tJ := res[j].LastSeenAt
+		if res[j].PostedAt != nil {
+			tJ = *res[j].PostedAt
+		}
+		return tI.After(tJ)
+	})
+
+	if res == nil {
+		res = []model.TechnicalJobPosting{}
+	}
+
+	return res, nil
+}
+
+func (m *MockStore) UpsertTechnicalJob(_ context.Context, job *model.TechnicalJobPosting) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if job.ID == uuid.Nil {
+		job.ID = uuid.New()
+	}
+	if job.NormalizedTitle == "" {
+		job.NormalizedTitle = strings.ToLower(strings.TrimSpace(job.Title))
+	}
+	now := time.Now()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+	if job.FirstSeenAt.IsZero() {
+		job.FirstSeenAt = now
+	}
+	if job.LastSeenAt.IsZero() {
+		job.LastSeenAt = now
+	}
+	if job.PublicationState == "" {
+		job.PublicationState = model.PublicationStateObservedRecently
+	}
+	if job.WorkArrangement == "" {
+		job.WorkArrangement = model.WorkArrangementUnknown
+	}
+
+	// Match existing by (source, source_job_id) if source_job_id is set, or (source, content_hash)
+	for _, existing := range m.TechnicalJobs {
+		matched := false
+		if job.SourceJobID != nil && *job.SourceJobID != "" && existing.SourceJobID != nil && *existing.SourceJobID == *job.SourceJobID && existing.Source == job.Source {
+			matched = true
+		} else if (job.SourceJobID == nil || *job.SourceJobID == "") && existing.ContentHash == job.ContentHash && existing.Source == job.Source {
+			matched = true
+		}
+
+		if matched {
+			existing.Title = job.Title
+			existing.NormalizedTitle = job.NormalizedTitle
+			existing.DescriptionExcerpt = job.DescriptionExcerpt
+			existing.LocationRaw = job.LocationRaw
+			existing.Lat = job.Lat
+			existing.Lng = job.Lng
+			existing.WorkArrangement = job.WorkArrangement
+			existing.PublicationState = job.PublicationState
+			if job.PostedAt != nil {
+				existing.PostedAt = job.PostedAt
+				existing.PostedAtConfidence = job.PostedAtConfidence
+			}
+			existing.LastSeenAt = job.LastSeenAt
+			existing.IsActive = job.IsActive
+			existing.TechnicalClassification = job.TechnicalClassification
+			existing.RuleVersion = job.RuleVersion
+			existing.ClassificationReasons = job.ClassificationReasons
+			existing.Metadata = job.Metadata
+			existing.UpdatedAt = now
+			job.ID = existing.ID
+			job.FirstSeenAt = existing.FirstSeenAt
+			return nil
+		}
+	}
+
+	jobCopy := *job
+	m.TechnicalJobs[job.ID] = &jobCopy
+	return nil
+}
+
+func (m *MockStore) SearchTechnicalJobs(_ context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+	type matchedJob struct {
+		result   model.TechnicalJobSearchResult
+		postedAt time.Time
+	}
+	var matched []matchedJob
+
+	for _, j := range m.TechnicalJobs {
+		if !j.IsActive || j.Lat == nil || j.Lng == nil {
+			continue
+		}
+		if j.WorkArrangement == model.WorkArrangementRemote {
+			continue
+		}
+		if j.PublicationState != model.PublicationStatePostedRecently {
+			continue
+		}
+		if j.PostedAt == nil || j.PostedAt.Before(fourteenDaysAgo) {
+			continue
+		}
+		if j.PostedAtConfidence <= 0 {
+			continue
+		}
+
+		dist := haversineDistance(lat, lng, *j.Lat, *j.Lng)
+		if dist > radiusMeters {
+			continue
+		}
+
+		if opts.WorkArrangement != nil && j.WorkArrangement != *opts.WorkArrangement {
+			continue
+		}
+
+		c := m.Companies[j.CompanyID]
+		compName := ""
+		var compDomain *string
+		if c != nil {
+			compName = c.Name
+			compDomain = c.Domain
+		}
+
+		if opts.Query != nil && *opts.Query != "" {
+			q := strings.ToLower(*opts.Query)
+			words := strings.Fields(q)
+			fullText := strings.ToLower(j.Title + " " + j.NormalizedTitle + " " + compName)
+			matches := true
+			for _, w := range words {
+				if !strings.Contains(fullText, w) {
+					matches = false
+					break
+				}
+			}
+			if !matches {
+				continue
+			}
+		}
+
+		res := model.TechnicalJobSearchResult{
+			ID:                 j.ID,
+			CompanyID:          j.CompanyID,
+			CompanyName:        compName,
+			CompanyDomain:      compDomain,
+			Title:              j.Title,
+			NormalizedTitle:    j.NormalizedTitle,
+			DescriptionExcerpt: j.DescriptionExcerpt,
+			CanonicalURL:       j.CanonicalURL,
+			Source:             j.Source,
+			SourceFamily:       j.SourceFamily,
+			LocationRaw:        j.LocationRaw,
+			Lat:                *j.Lat,
+			Lng:                *j.Lng,
+			DistanceMeters:     dist,
+			WorkArrangement:    j.WorkArrangement,
+			PublicationState:   j.PublicationState,
+			PostedAt:           j.PostedAt,
+			PostedAtConfidence: j.PostedAtConfidence,
+			FirstSeenAt:        j.FirstSeenAt,
+			LastSeenAt:         j.LastSeenAt,
+			Metadata:           j.Metadata,
+		}
+		matched = append(matched, matchedJob{result: res, postedAt: *j.PostedAt})
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].result.DistanceMeters != matched[j].result.DistanceMeters {
+			return matched[i].result.DistanceMeters < matched[j].result.DistanceMeters
+		}
+		return matched[i].postedAt.After(matched[j].postedAt)
+	})
+
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	if offset >= len(matched) {
+		return []model.TechnicalJobSearchResult{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+
+	results := make([]model.TechnicalJobSearchResult, end-offset)
+	for i := offset; i < end; i++ {
+		results[i-offset] = matched[i].result
+	}
+	return results, nil
+}
+
+func (m *MockStore) CountTechnicalJobSearch(_ context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	fourteenDaysAgo := time.Now().Add(-14 * 24 * time.Hour)
+	count := 0
+
+	for _, j := range m.TechnicalJobs {
+		if !j.IsActive || j.Lat == nil || j.Lng == nil {
+			continue
+		}
+		if j.WorkArrangement == model.WorkArrangementRemote {
+			continue
+		}
+		if j.PublicationState != model.PublicationStatePostedRecently {
+			continue
+		}
+		if j.PostedAt == nil || j.PostedAt.Before(fourteenDaysAgo) {
+			continue
+		}
+		if j.PostedAtConfidence <= 0 {
+			continue
+		}
+
+		dist := haversineDistance(lat, lng, *j.Lat, *j.Lng)
+		if dist > radiusMeters {
+			continue
+		}
+
+		if opts.WorkArrangement != nil && j.WorkArrangement != *opts.WorkArrangement {
+			continue
+		}
+
+		c := m.Companies[j.CompanyID]
+		compName := ""
+		if c != nil {
+			compName = c.Name
+		}
+
+		if opts.Query != nil && *opts.Query != "" {
+			q := strings.ToLower(*opts.Query)
+			words := strings.Fields(q)
+			fullText := strings.ToLower(j.Title + " " + j.NormalizedTitle + " " + compName)
+			matches := true
+			for _, w := range words {
+				if !strings.Contains(fullText, w) {
+					matches = false
+					break
+				}
+			}
+			if !matches {
+				continue
+			}
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
+func (m *MockStore) GetLocationEvidenceSummaries(_ context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var summaries []model.LocationEvidenceSummary
+	for _, l := range m.Locations {
+		if l.CompanyID != companyID {
+			continue
+		}
+
+		familySet := make(map[string]bool)
+		typeSet := make(map[string]bool)
+
+		// 1. Sightings linked or within 500m
+		for _, s := range m.Sightings {
+			matched := false
+			if s.LocationID != nil && *s.LocationID == l.ID {
+				matched = true
+			} else if s.CompanyID != nil && *s.CompanyID == companyID && s.Lat != 0 && s.Lng != 0 {
+				dist := haversineDistance(l.Lat, l.Lng, s.Lat, s.Lng)
+				if dist <= 500 {
+					matched = true
+				}
+			}
+
+			if matched {
+				fam := s.SourceFamily
+				if fam == "" && s.Metadata != nil {
+					if sf, ok := s.Metadata["source_family"].(string); ok && sf != "" {
+						fam = sf
+					}
+				}
+				if fam == "" {
+					fam = s.Source
+				}
+				if fam != "" {
+					familySet[fam] = true
+					switch strings.ToLower(fam) {
+					case "job_ats", "greenhouse", "lever", "jobportal":
+						typeSet["job"] = true
+					default:
+						typeSet["company"] = true
+					}
+				}
+			}
+		}
+
+
+		// 2. Technical jobs linked or within 500m
+		for _, j := range m.TechnicalJobs {
+			if j.CompanyID != companyID {
+				continue
+			}
+
+			matched := false
+			if j.LocationID != nil && *j.LocationID == l.ID {
+				matched = true
+			} else if j.Lat != nil && j.Lng != nil && *j.Lat != 0 && *j.Lng != 0 {
+				dist := haversineDistance(l.Lat, l.Lng, *j.Lat, *j.Lng)
+				if dist <= 500 {
+					matched = true
+				}
+			}
+
+			if matched {
+				if j.SourceFamily != "" {
+					familySet[j.SourceFamily] = true
+				}
+				typeSet["job"] = true
+			}
+		}
+
+		var families []string
+		for fam := range familySet {
+			families = append(families, fam)
+		}
+		sort.Strings(families)
+
+		var types []string
+		for t := range typeSet {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+
+		summaries = append(summaries, model.LocationEvidenceSummary{
+			LocationID:     l.ID,
+			SourceFamilies: families,
+			EvidenceTypes:  types,
+		})
+	}
+
+	return summaries, nil
+}
+
+func (m *MockStore) UpsertDiscoverySighting(_ context.Context, s *model.Sighting) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if s.ID == uuid.Nil {
+		s.ID = uuid.New()
+	}
+	now := time.Now()
+	if s.FirstSeenAt.IsZero() {
+		s.FirstSeenAt = now
+	}
+	if s.LastSeenAt.IsZero() {
+		s.LastSeenAt = now
+	}
+	if s.ScrapedAt.IsZero() {
+		s.ScrapedAt = now
+	}
+
+	for _, existing := range m.Sightings {
+		matched := false
+		if s.SourceRecordID != nil && *s.SourceRecordID != "" && existing.SourceRecordID != nil && *existing.SourceRecordID == *s.SourceRecordID && existing.Source == s.Source {
+			matched = true
+		} else if (s.SourceRecordID == nil || *s.SourceRecordID == "") && s.ContentHash != nil && *s.ContentHash != "" && existing.ContentHash != nil && *existing.ContentHash == *s.ContentHash && existing.Source == s.Source {
+			matched = true
+		}
+
+		if matched {
+			existing.LastSeenAt = s.LastSeenAt
+			existing.ScrapedAt = s.ScrapedAt
+			if s.RawAddress != "" {
+				existing.RawAddress = s.RawAddress
+			}
+			if s.Lat != 0 {
+				existing.Lat = s.Lat
+			}
+			if s.Lng != 0 {
+				existing.Lng = s.Lng
+			}
+			if s.Metadata != nil {
+				if existing.Metadata == nil {
+					existing.Metadata = make(model.JSONMap)
+				}
+				for k, v := range s.Metadata {
+					existing.Metadata[k] = v
+				}
+			}
+			s.ID = existing.ID
+			s.CompanyID = existing.CompanyID
+			s.LocationID = existing.LocationID
+			s.FirstSeenAt = existing.FirstSeenAt
+			return nil
+		}
+	}
+
+	sCopy := *s
+	m.Sightings[s.ID] = &sCopy
+	return nil
+}
+

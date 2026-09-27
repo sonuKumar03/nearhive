@@ -21,6 +21,10 @@ type Config struct {
 	ScrapeRegions     []string
 	RateLimitAuth     int
 	RateLimitSearch   int
+
+	DiscoveryWorkerToken     string
+	DiscoveryMaxBatchRecords int
+	DiscoveryMaxBodyBytes    int64
 }
 
 func Load() (*Config, error) {
@@ -44,20 +48,29 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
 
+	env := getEnv("ENVIRONMENT", "development")
+	workerToken := os.Getenv("DISCOVERY_WORKER_TOKEN")
+	if env == "production" && workerToken == "" {
+		return nil, fmt.Errorf("DISCOVERY_WORKER_TOKEN is required in production")
+	}
+
 	cfg := &Config{
-		Port:              getEnv("PORT", "8080"),
-		Environment:       getEnv("ENVIRONMENT", "development"),
-		DatabaseURL:       dbURL,
-		JWTSecret:         jwtSecret,
-		NominatimURL:      getEnv("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
-		GoogleGeoAPIKey:   os.Getenv("GOOGLE_GEO_API_KEY"),
-		GooglePlacesKey:   os.Getenv("GOOGLE_PLACES_KEY"),
-		MaxScraperWorkers: getEnvInt("MAX_SCRAPER_WORKERS", 5),
-		CrawlerConcurrency: getEnvInt("CRAWLER_CONCURRENCY", 3),
-		ScrapeSchedule:    getEnv("SCRAPE_SCHEDULE", "0 3 * * *"),
-		ScrapeRegions:     splitAndTrim(getEnv("SCRAPE_REGIONS", "Bangalore,Pune,Hyderabad")),
-		RateLimitAuth:     getEnvInt("RATE_LIMIT_AUTH", 10),
-		RateLimitSearch:   getEnvInt("RATE_LIMIT_SEARCH", 60),
+		Port:                     getEnv("PORT", "8080"),
+		Environment:              env,
+		DatabaseURL:              dbURL,
+		JWTSecret:                jwtSecret,
+		NominatimURL:             getEnv("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
+		GoogleGeoAPIKey:          os.Getenv("GOOGLE_GEO_API_KEY"),
+		GooglePlacesKey:          os.Getenv("GOOGLE_PLACES_KEY"),
+		MaxScraperWorkers:        getEnvInt("MAX_SCRAPER_WORKERS", 5),
+		CrawlerConcurrency:       getEnvInt("CRAWLER_CONCURRENCY", 3),
+		ScrapeSchedule:           getEnv("SCRAPE_SCHEDULE", "0 3 * * *"),
+		ScrapeRegions:            splitAndTrim(getEnv("SCRAPE_REGIONS", "Bangalore,Pune,Hyderabad")),
+		RateLimitAuth:            getEnvInt("RATE_LIMIT_AUTH", 10),
+		RateLimitSearch:          getEnvInt("RATE_LIMIT_SEARCH", 60),
+		DiscoveryWorkerToken:     workerToken,
+		DiscoveryMaxBatchRecords: getEnvInt("DISCOVERY_MAX_BATCH_RECORDS", 500),
+		DiscoveryMaxBodyBytes:    int64(getEnvInt("DISCOVERY_MAX_BODY_BYTES", 2097152)),
 	}
 
 	return cfg, nil

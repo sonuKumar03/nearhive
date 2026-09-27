@@ -3,14 +3,16 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 )
 
 var (
-	ErrNotFound = errors.New("record not found")
-	ErrConflict = errors.New("record already exists")
+	ErrNotFound        = errors.New("record not found")
+	ErrConflict        = errors.New("record already exists")
+	ErrInvalidJobState = errors.New("job cannot be cancelled in its current state")
 )
 
 type SearchOpts struct {
@@ -41,6 +43,7 @@ type LocationStore interface {
 	GetLocationsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Location, error)
 	FindNearbyLocation(ctx context.Context, companyID uuid.UUID, lat, lng float64, radiusMeters float64) (*model.Location, error)
 	UpdateLocationConfidence(ctx context.Context, id uuid.UUID, confidence float64) error
+	UpdateLocationPresence(ctx context.Context, id uuid.UUID, presence model.PresenceType, confidence float64, verified bool) error
 	UpdateLocationCoords(ctx context.Context, id uuid.UUID, lat, lng float64) error
 	Search(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error)
 	CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error)
@@ -68,6 +71,32 @@ type SearchHistoryStore interface {
 	GetHistoryByUser(ctx context.Context, userID uuid.UUID, limit int) ([]model.SearchHistory, error)
 }
 
+type DiscoveryStore interface {
+	CreateDiscoveryJob(ctx context.Context, job *model.DiscoveryJob) error
+	GetDiscoveryJob(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*model.DiscoveryJob, error)
+	ListDiscoveryJobs(ctx context.Context, userID uuid.UUID, limit, offset int) ([]model.DiscoveryJob, error)
+	CancelDiscoveryJob(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
+	UpsertDiscoverySourceRun(ctx context.Context, run *model.DiscoverySourceRun) error
+	GetDiscoverySourceRuns(ctx context.Context, discoveryJobID uuid.UUID) ([]model.DiscoverySourceRun, error)
+	GetLocationEvidenceSummaries(ctx context.Context, companyID uuid.UUID) ([]model.LocationEvidenceSummary, error)
+	UpsertDiscoverySighting(ctx context.Context, sighting *model.Sighting) error
+}
+
+
+type TechnicalJobSearchOpts struct {
+	Query           *string
+	WorkArrangement *model.WorkArrangement
+	Limit           int
+	Offset          int
+}
+
+type TechnicalJobStore interface {
+	GetTechnicalJobsByCompany(ctx context.Context, companyID uuid.UUID, since time.Time) ([]model.TechnicalJobPosting, error)
+	UpsertTechnicalJob(ctx context.Context, job *model.TechnicalJobPosting) error
+	SearchTechnicalJobs(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error)
+	CountTechnicalJobSearch(ctx context.Context, lat, lng, radiusMeters float64, opts TechnicalJobSearchOpts) (int, error)
+}
+
 type Store interface {
 	UserStore
 	CompanyStore
@@ -75,5 +104,7 @@ type Store interface {
 	SightingStore
 	JobStore
 	SearchHistoryStore
+	DiscoveryStore
+	TechnicalJobStore
 	Close() error
 }

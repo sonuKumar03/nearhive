@@ -1,4 +1,4 @@
-.PHONY: help up dev down stop restart logs logs-app logs-db logs-web clean clean-volume ps build test local-run
+.PHONY: help up dev down stop restart logs logs-app logs-db logs-web logs-crawler logs-discovery clean clean-volume ps build test test-discovery local-run
 
 # Default target
 all: help
@@ -6,21 +6,23 @@ all: help
 help: ## Show this help message
 	@echo "🐝 NearHive Local Development Commands:"
 	@echo ""
-	@echo "  make up          Start full app (React Web + Go API + PostGIS DB) in background"
-	@echo "  make dev         Alias for 'make up' with live rebuild"
-	@echo "  make down        Stop all running containers"
-	@echo "  make stop        Alias for 'make down'"
-	@echo "  make restart     Restart all services"
-	@echo "  make logs        Stream logs from all services"
-	@echo "  make logs-web    Stream logs from the Next.js React frontend"
-	@echo "  make logs-app    Stream logs from the Go NearHive application"
-	@echo "  make logs-crawler Stream logs from the standalone crawler daemon"
-	@echo "  make logs-db     Stream logs from PostGIS database"
-	@echo "  make ps          Show container status"
-	@echo "  make clean       Stop containers and WIPE all database volumes (fresh start)"
-	@echo "  make build       Rebuild Docker images"
-	@echo "  make test        Run Go unit and integration tests"
-	@echo "  make local-run   Build and run NearHive binary natively (outside Docker)"
+	@echo "  make up             Start full app (React Web + Go API + PostGIS DB + Discovery) in background"
+	@echo "  make dev            Alias for 'make up' with live rebuild"
+	@echo "  make down           Stop all running containers"
+	@echo "  make stop           Alias for 'make down'"
+	@echo "  make restart        Restart all services"
+	@echo "  make logs           Stream logs from all services"
+	@echo "  make logs-web       Stream logs from the Next.js React frontend"
+	@echo "  make logs-app       Stream logs from the Go NearHive application"
+	@echo "  make logs-crawler   Stream logs from the standalone crawler daemon"
+	@echo "  make logs-discovery Stream logs from the Python discovery worker"
+	@echo "  make logs-db        Stream logs from PostGIS database"
+	@echo "  make ps             Show container status"
+	@echo "  make clean          Stop containers and WIPE all database volumes (fresh start)"
+	@echo "  make build          Rebuild Docker images"
+	@echo "  make test           Run Go unit and integration tests"
+	@echo "  make test-discovery Run Python company discovery end-to-end test suite"
+	@echo "  make local-run      Build and run NearHive binary natively (outside Docker)"
 	@echo ""
 
 up: ## Start containers in background
@@ -54,6 +56,9 @@ logs-app: ## Follow application logs
 logs-crawler: ## Follow standalone crawler logs
 	docker compose logs -f crawler
 
+logs-discovery: ## Follow Python discovery worker logs
+	docker compose logs -f python-discovery
+
 logs-db: ## Follow database logs
 	docker compose logs -f db
 
@@ -71,6 +76,9 @@ build: ## Rebuild docker images
 
 test: ## Run unit and package tests
 	go test -v ./...
+
+test-discovery: ## Run Python company discovery end-to-end test suite
+	cd python-discovery && (command -v uv >/dev/null 2>&1 && uv run pytest -v tests/test_e2e.py || python3 -m pytest -v tests/test_e2e.py || pytest -v tests/test_e2e.py)
 
 local-run: ## Build and run locally with native Go
 	go build -o bin/nearhive ./cmd/nearhive

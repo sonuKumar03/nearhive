@@ -2,17 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import MapContainer from '@/components/map/MapContainer';
-import Sidebar from '@/components/sidebar/Sidebar';
+import Sidebar, { SidebarMode } from '@/components/sidebar/Sidebar';
 import CompanyDetailDrawer from '@/components/drawers/CompanyDetailDrawer';
 import ScrapeModal from '@/components/drawers/ScrapeModal';
 import BackgroundScrapeWidget from '@/components/scrapers/BackgroundScrapeWidget';
 import { useCompanies } from '@/hooks/useCompanies';
+import { useNearbyJobs } from '@/hooks/useNearbyJobs';
 import { useClusters } from '@/hooks/useClusters';
 import { useScrapeJobs } from '@/hooks/useScrapeJobs';
+import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
-import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown } from 'lucide-react';
+import { useLiveTimer, getJobRuntimeInfo } from '@/lib/runtime';
+import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown, Sparkles } from 'lucide-react';
 
 const CITY_PRESETS = [
   { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
@@ -33,6 +36,7 @@ export default function HomePage() {
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('companies');
   const [geoNotice, setGeoNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [isUserLocationActive, setIsUserLocationActive] = useState(false);
 
@@ -68,11 +72,22 @@ export default function HomePage() {
   // Initialize guest session
   useAuth();
 
-  // Track active background scraping jobs
+  // Track active background scraping & discovery jobs
   const { data: jobsData } = useScrapeJobs();
+  const { data: discoveryData } = useDiscoveryJobs();
   const allJobs = jobsData?.jobs || [];
+  const allDiscoveryJobs = discoveryData?.jobs || [];
   const runningJobs = allJobs.filter((j) => j.status === 'running' || j.status === 'pending');
-  const totalRunningSightings = runningJobs.reduce((acc, j) => acc + (j.sightings || 0), 0);
+  const runningDiscovery = allDiscoveryJobs.filter(
+    (j) => j.status === 'running' || j.status === 'pending'
+  );
+  const totalRunningSightings =
+    runningJobs.reduce((acc, j) => acc + (j.sightings || 0), 0) +
+    runningDiscovery.reduce((acc, j) => acc + (j.company_count || 0), 0);
+  const isAnyJobRunning = runningJobs.length > 0 || runningDiscovery.length > 0;
+  const now = useLiveTimer(isAnyJobRunning);
+  const activeJob = runningDiscovery[0] || runningJobs[0];
+  const activeRuntime = activeJob ? getJobRuntimeInfo(activeJob, now) : null;
 
   const { data: searchData, isLoading: loadingCompanies } = useCompanies({
     lat: center.lat,
@@ -80,6 +95,16 @@ export default function HomePage() {
     radius_km: radiusKm,
     q: debouncedQuery,
   });
+
+  const { data: nearbyJobsData, isLoading: loadingJobs } = useNearbyJobs(
+    {
+      lat: center.lat,
+      lng: center.lng,
+      radius_km: radiusKm,
+      q: debouncedQuery,
+    },
+    sidebarMode === 'jobs'
+  );
 
   const { data: clusterData } = useClusters(
     {
@@ -314,21 +339,29 @@ export default function HomePage() {
 
         {/* Header Right Controls */}
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Active Background Scraper Header Pill */}
-          {runningJobs.length > 0 && (
+          {/* Active Background Scraper / Discovery Header Pill */}
+          {isAnyJobRunning && (
             <button
               onClick={() => setIsScrapeOpen(true)}
               className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/20 transition-all cursor-pointer animate-pulse"
-              title="Click to view full scraper tasks"
+              title="Click to view full discovery & scraper tasks"
             >
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span className="font-semibold">
-                {runningJobs.length === 1
+                {runningDiscovery.length > 0
+                  ? `${runningDiscovery.length} Discovery Active`
+                  : runningJobs.length === 1
                   ? `Crawling ${runningJobs[0].region}...`
                   : `${runningJobs.length} Scrapers Active`}
               </span>
-              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold">
-                {totalRunningSightings} sightings
+              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold flex items-center gap-1">
+                <span>{totalRunningSightings} found</span>
+                {activeRuntime?.shortText && (
+                  <>
+                    <span className="opacity-40">•</span>
+                    <span>{activeRuntime.shortText}</span>
+                  </>
+                )}
               </span>
             </button>
           )}
@@ -355,9 +388,9 @@ export default function HomePage() {
             onClick={() => setIsScrapeOpen(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all cursor-pointer shrink-0"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span className="hidden sm:inline">Scrape Tech Hub</span>
-            <span className="sm:hidden">Scrape</span>
+            <Sparkles className="w-3.5 h-3.5 fill-current" />
+            <span className="hidden sm:inline">Discover Tech Hub</span>
+            <span className="sm:hidden">Discover</span>
           </button>
         </div>
       </header>
@@ -370,12 +403,18 @@ export default function HomePage() {
           companies={companies}
           isLoading={loadingCompanies}
           totalCount={totalCount}
+          jobs={nearbyJobsData?.jobs || []}
+          isLoadingJobs={loadingJobs}
+          totalJobsCount={nearbyJobsData?.meta?.total}
+          activeMode={sidebarMode}
+          onModeChange={setSidebarMode}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelectCompany={(c) => {
             setSelectedCompany(c);
             if (isClusterMode) setIsClusterMode(false);
           }}
+          selectedCompany={selectedCompany}
         />
 
         {/* Map Canvas - responsive visibility */}

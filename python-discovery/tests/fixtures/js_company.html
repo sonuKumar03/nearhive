@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Acme Robotics</title>
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      const root = document.getElementById("root");
+      if (root) {
+        root.innerHTML = `
+          <div class="company-profile">
+            <h1 class="company-name">Acme Robotics Inc.</h1>
+            <p class="description">Autonomous warehouse robotics and software solutions.</p>
+            <div class="contact-info">
+              <span class="address">100 Tech Blvd, Suite 400, Austin, TX 78701</span>
+              <a href="tel:+15125550199" class="phone">+1 512-555-0199</a>
+              <a href="https://acmerobotics.example.com" class="website">acmerobotics.example.com</a>
+            </div>
+            <div class="jobs">
+              <h2>Open Positions</h2>
+              <div class="job-card">
+                <h3>Senior Robotics Software Engineer</h3>
+                <span class="location">Austin, TX</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    });
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+</body>
+</html>

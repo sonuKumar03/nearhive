@@ -99,7 +99,11 @@ def _check_ip_literal(host: str) -> None:
         raise SSRFError(f"Private, local, or unsafe IP address disallowed: {host}")
 
 
-def validate_public_url(url: str, resolve_dns: bool = True) -> NormalizedURL:
+def validate_public_url(
+    url: str,
+    resolve_dns: bool = True,
+    allow_local: bool | None = None,
+) -> NormalizedURL:
     """Validates that a URL is a public, safe HTTP(S) URL and returns its normalized form.
 
     Enforces strict SSRF defense:
@@ -107,7 +111,12 @@ def validate_public_url(url: str, resolve_dns: bool = True) -> NormalizedURL:
     - Credentials (user:pass) are rejected.
     - Localhost, link-local, RFC1918 private IPv4, and private IPv6 are rejected.
     - Resolves hostnames via DNS and verifies all resolved IPs against private ranges.
+    - If allow_local is True or NEARHIVE_ALLOW_LOCAL_DISCOVERY=true, allows loopback/local fixtures.
     """
+    if allow_local is None:
+        import os
+        allow_local = os.getenv("NEARHIVE_ALLOW_LOCAL_DISCOVERY", "").lower() in ("1", "true", "yes")
+
     if not url or not isinstance(url, str):
         raise SSRFError("URL must be a non-empty string")
 
@@ -125,17 +134,18 @@ def validate_public_url(url: str, resolve_dns: bool = True) -> NormalizedURL:
 
     hostname_lower = hostname.lower()
 
-    # Reject localhost names
-    if hostname_lower == "localhost" or hostname_lower.endswith(".localhost"):
+    # Reject localhost names unless allow_local
+    if not allow_local and (hostname_lower == "localhost" or hostname_lower.endswith(".localhost")):
         raise SSRFError(f"Localhost address disallowed: {hostname}")
 
     # Check if host is an IP literal
-    _check_ip_literal(hostname_lower)
+    if not allow_local:
+        _check_ip_literal(hostname_lower)
 
     port = parsed.port or (80 if scheme == "http" else 443)
 
     # DNS resolution check
-    if resolve_dns:
+    if resolve_dns and not allow_local:
         clean_host = hostname_lower.strip("[]")
         try:
             ipaddress.ip_address(clean_host)

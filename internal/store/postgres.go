@@ -390,7 +390,7 @@ func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sighti
 
 func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	var sightings []model.Sighting
-	query := `SELECT id, source, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at
+	query := `SELECT id, source, source_family, source_record_id, content_hash, discovery_job_id, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, first_seen_at, last_seen_at, scraped_at
 	          FROM sightings WHERE company_id = $1 ORDER BY scraped_at DESC`
 	err := s.db.SelectContext(ctx, &sightings, query, companyID)
 	return sightings, err

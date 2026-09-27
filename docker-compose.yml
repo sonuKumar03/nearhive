@@ -35,6 +35,7 @@ services:
       JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
       ENVIRONMENT: development
       ALLOWED_ORIGINS: "*"
+      DISCOVERY_WORKER_TOKEN: dev-worker-token
       LOG_LEVEL: info
     restart: unless-stopped
 
@@ -52,6 +53,26 @@ services:
       CRAWLER_CONCURRENCY: 3
       ENVIRONMENT: development
       LOG_LEVEL: info
+    restart: unless-stopped
+
+  python-discovery:
+    build:
+      context: ./python-discovery
+      dockerfile: Dockerfile
+    container_name: nearhive-discovery
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
+      NEARHIVE_API_URL: http://app:8080
+      NEARHIVE_WORKER_TOKEN: dev-worker-token
+      DISCOVERY_WORKER_TOKEN: dev-worker-token
+      LOG_LEVEL: info
+    volumes:
+      - ./config:/app/config:ro
     restart: unless-stopped
 
   web:

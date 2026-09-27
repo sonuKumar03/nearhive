@@ -10,7 +10,7 @@ class Settings:
         "postgres://nearhive:password@localhost:5432/nearhive?sslmode=disable",
     )
     api_base_url: str = os.getenv("NEARHIVE_API_URL", "http://localhost:8080")
-    worker_token: str = os.getenv("NEARHIVE_WORKER_TOKEN", "dev-worker-token")
+    worker_token: str = os.getenv("NEARHIVE_WORKER_TOKEN") or os.getenv("DISCOVERY_WORKER_TOKEN") or "dev-worker-token"
     worker_id: str = os.getenv("NEARHIVE_WORKER_ID", f"worker-{uuid.uuid4().hex[:8]}")
     lease_seconds: int = int(os.getenv("NEARHIVE_LEASE_SECONDS", "60"))
     heartbeat_interval_seconds: float = float(os.getenv("NEARHIVE_HEARTBEAT_INTERVAL", "15.0"))

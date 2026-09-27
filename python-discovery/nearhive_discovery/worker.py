@@ -330,3 +330,62 @@ class Worker:
         finally:
             self.close()
 
+
+def get_default_sources() -> list[Source]:
+    """Loads configured discovery sources from config file or defaults."""
+    from pathlib import Path
+    from nearhive_discovery.sources.configured_directory import ConfiguredDirectorySource
+
+    sources: list[Source] = []
+    config_candidates = [
+        Path("config/python_sources.yaml"),
+        Path("/app/config/python_sources.yaml"),
+        Path("../config/python_sources.yaml"),
+    ]
+    for p in config_candidates:
+        if p.exists():
+            try:
+                loaded = ConfiguredDirectorySource.load_all(p)
+                sources.extend(loaded)
+                logger.info("Loaded %d directory sources from %s", len(loaded), p)
+                break
+            except Exception as exc:
+                logger.warning("Failed to load sources from %s: %s", p, exc)
+
+    return sources
+
+
+def main() -> None:
+    import os
+    import signal
+
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    logger.info("Starting NearHive Python Discovery Worker daemon...")
+
+    stop_event = threading.Event()
+
+    def handle_signal(signum: int, frame: Any) -> None:
+        logger.info("Received termination signal %s; shutting down worker...", signum)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    sources = get_default_sources()
+    worker = Worker(sources=sources)
+    try:
+        worker.run(stop_event=stop_event)
+    except KeyboardInterrupt:
+        logger.info("Worker interrupted by user.")
+    finally:
+        worker.close()
+
+
+if __name__ == "__main__":
+    main()
+
+

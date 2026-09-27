@@ -44,12 +44,14 @@ class GreenhouseSource(BaseSourceAdapter):
         batch_size: int = 50,
         page_ceiling: int = 10,
         reference_time: datetime | None = None,
+        api_base_url: str = "https://boards-api.greenhouse.io",
     ) -> None:
         self.batch_size = max(1, batch_size)
         self.page_ceiling = max(1, page_ceiling)
         self.fetcher = fetcher
         self.http_client = http_client
         self.reference_time = reference_time
+        self.api_base_url = api_base_url.rstrip("/")
 
         if boards is not None:
             self.boards = list(boards)
@@ -102,7 +104,7 @@ class GreenhouseSource(BaseSourceAdapter):
             company_emitted = False
 
             for page in range(1, self.page_ceiling + 1):
-                url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true&page={page}"
+                url = f"{self.api_base_url}/v1/boards/{token}/jobs?content=true&page={page}"
                 try:
                     raw_text = await self._fetch(url)
                     data = json.loads(raw_text)

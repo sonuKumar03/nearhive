@@ -45,6 +45,7 @@ class LeverSource(BaseSourceAdapter):
         page_ceiling: int = 10,
         limit: int = 20,
         reference_time: datetime | None = None,
+        api_base_url: str = "https://api.lever.co",
     ) -> None:
         self.batch_size = max(1, batch_size)
         self.page_ceiling = max(1, page_ceiling)
@@ -52,6 +53,7 @@ class LeverSource(BaseSourceAdapter):
         self.fetcher = fetcher
         self.http_client = http_client
         self.reference_time = reference_time
+        self.api_base_url = api_base_url.rstrip("/")
 
         if sites is not None:
             self.sites = list(sites)
@@ -105,7 +107,7 @@ class LeverSource(BaseSourceAdapter):
 
             for page in range(1, self.page_ceiling + 1):
                 skip = (page - 1) * self.limit
-                url = f"https://api.lever.co/v0/postings/{site}?mode=json&skip={skip}&limit={self.limit}"
+                url = f"{self.api_base_url}/v0/postings/{site}?mode=json&skip={skip}&limit={self.limit}"
                 try:
                     raw_text = await self._fetch(url)
                     data = json.loads(raw_text)

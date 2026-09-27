@@ -314,9 +314,36 @@ func (m *MockStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusM
 	return m.Search(ctx, lat, lng, radiusMeters, opts)
 }
 
-func (m *MockStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
-	res, err := m.Search(ctx, lat, lng, radiusMeters, opts)
-	return len(res), err
+func (m *MockStore) CountSearch(_ context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, l := range m.Locations {
+		c, ok := m.Companies[l.CompanyID]
+		if !ok {
+			continue
+		}
+		dist := haversineDistance(lat, lng, l.Lat, l.Lng)
+		if dist <= radiusMeters {
+			if opts.MinConfidence != nil && l.Confidence < *opts.MinConfidence {
+				continue
+			}
+			if opts.Industry != nil && *opts.Industry != "" {
+				if c.Industry == nil || !strings.Contains(strings.ToLower(*c.Industry), strings.ToLower(*opts.Industry)) {
+					continue
+				}
+			}
+			if opts.Query != nil && *opts.Query != "" {
+				q := strings.ToLower(*opts.Query)
+				if !strings.Contains(strings.ToLower(c.Name), q) && !strings.Contains(strings.ToLower(c.NormalizedName), q) {
+					continue
+				}
+			}
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *MockStore) ClusterSearch(_ context.Context, lat, lng, radiusMeters float64, k int) ([]model.SpatialCluster, error) {

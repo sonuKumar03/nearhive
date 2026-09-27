@@ -801,7 +801,7 @@ func TestSearchDiscovery(t *testing.T) {
 		require.NoError(t, s.CreateLocation(ctx, loc4))
 
 		// Execute Search around Indiranagar center with 5km radius
-		results, err := s.Search(ctx, centerLat, centerLng, 5000, SearchOpts{})
+		results, err := s.Search(ctx, centerLat, centerLng, 5000, SearchOpts{Query: &uid})
 		require.NoError(t, err)
 
 		// c4 should NOT be in results
@@ -838,6 +838,11 @@ func TestSearchDiscovery(t *testing.T) {
 		assert.Equal(t, model.PresenceTypeJobLocationOnly, res3.PresenceType)
 		assert.Equal(t, 1, res3.RecentTechnicalJobCount)
 		assert.ElementsMatch(t, []model.WorkArrangement{model.WorkArrangementHybrid}, res3.Arrangements)
+
+		// Verify CountSearch ignores limit/offset and returns total matching locations
+		totalCount, err := s.CountSearch(ctx, centerLat, centerLng, 5000, SearchOpts{Query: &uid, Limit: 1, Offset: 1})
+		require.NoError(t, err)
+		assert.Equal(t, 3, totalCount, "CountSearch should return total matching locations regardless of limit/offset")
 	})
 }
 

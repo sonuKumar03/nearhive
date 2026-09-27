@@ -1,3 +1,8 @@
+export type DiscoveryStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+export type PresenceType = 'confirmed_office' | 'probable_office' | 'job_location_only';
+export type WorkArrangement = 'in_office' | 'hybrid' | 'remote' | 'unknown';
+export type PublicationState = 'posted_recently' | 'observed_recently' | 'stale';
+
 export interface Company {
   id: string;
   name: string;
@@ -5,6 +10,9 @@ export interface Company {
   domain?: string;
   industry?: string;
   employee_count?: string;
+  presence_type?: PresenceType;
+  recent_technical_job_count?: number;
+  arrangements?: WorkArrangement[];
   created_at: string;
   updated_at: string;
 }
@@ -16,6 +24,7 @@ export interface Location {
   lat: number;
   lng: number;
   confidence: number;
+  presence_type?: PresenceType;
   label?: string;
   city?: string;
   state?: string;
@@ -44,6 +53,9 @@ export interface CompanySearchResult {
   lng: number;
   confidence: number;
   distance_meters: number;
+  presence_type?: PresenceType;
+  recent_technical_job_count?: number;
+  arrangements?: WorkArrangement[];
   verified: boolean;
 }
 
@@ -125,4 +137,87 @@ export interface ClusterParams {
   lng: number;
   radius_km: number;
   k?: number;
+}
+
+export interface DiscoverySourceRun {
+  id: string;
+  discovery_job_id: string;
+  source: string;
+  source_family: string;
+  status: DiscoveryStatus;
+  attempts: number;
+  company_count: number;
+  job_count: number;
+  evidence_count: number;
+  error?: string;
+  duration_ms: number;
+  started_at?: string;
+  finished_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveryJob {
+  id: string;
+  user_id: string;
+  status: DiscoveryStatus;
+  lat: number;
+  lng: number;
+  radius_km: number;
+  worker_id?: string;
+  lease_expires_at?: string;
+  last_heartbeat_at?: string;
+  attempts: number;
+  max_attempts: number;
+  error?: string;
+  company_count: number;
+  job_count: number;
+  evidence_count: number;
+  started_at?: string;
+  finished_at?: string;
+  created_at: string;
+  updated_at: string;
+  source_runs?: DiscoverySourceRun[];
+}
+
+export interface TechnicalJobPosting {
+  id: string;
+  company_id: string;
+  location_id?: string;
+  discovery_job_id?: string;
+  source: string;
+  source_family: string;
+  source_job_id?: string;
+  canonical_url?: string;
+  title: string;
+  normalized_title: string;
+  description_excerpt?: string;
+  content_hash: string;
+  location_raw?: string;
+  lat?: number;
+  lng?: number;
+  work_arrangement: WorkArrangement;
+  publication_state: PublicationState;
+  posted_at?: string;
+  posted_at_confidence: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  is_active: boolean;
+  technical_classification: string;
+  rule_version: string;
+  classification_reasons?: string[];
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDiscoveryJobParams {
+  lat: number;
+  lng: number;
+  radius_km: number;
+}
+
+export interface CompanyTechnicalJobsResponse {
+  jobs: TechnicalJobPosting[];
+  technical_jobs: TechnicalJobPosting[];
 }

@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useTriggerScraper, useCancelScraper, useScrapeJobs } from '@/hooks/useScrapeJobs';
-import { ScrapeTask } from '@/types';
+import {
+  useTriggerDiscovery,
+  useCancelDiscovery,
+  useDiscoveryJobs,
+} from '@/hooks/useDiscoveryJobs';
+import { ScrapeTask, DiscoveryJob, DiscoverySourceRun } from '@/types';
 import {
   X,
   Play,
-  StopCircle,
   RefreshCw,
   CheckCircle2,
   AlertCircle,
@@ -12,6 +16,11 @@ import {
   MapPin,
   Building,
   Layers,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Cpu,
+  Compass,
 } from 'lucide-react';
 
 interface ScrapeModalProps {
@@ -47,6 +56,7 @@ export default function ScrapeModal({
   const [mode, setMode] = useState<'coordinates' | 'preset'>(defaultMode);
   const [region, setRegion] = useState(defaultRegion);
   const [radiusKm, setRadiusKm] = useState(currentRadiusKm);
+  const [showLegacySection, setShowLegacySection] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
@@ -77,49 +87,92 @@ export default function ScrapeModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const triggerMutation = useTriggerScraper();
-  const cancelMutation = useCancelScraper();
-  const { data: jobsData } = useScrapeJobs();
+  // Discovery hooks (Primary Python workflow)
+  const triggerDiscoveryMutation = useTriggerDiscovery();
+  const cancelDiscoveryMutation = useCancelDiscovery();
+  const { data: discoveryJobsData } = useDiscoveryJobs();
+
+  // Legacy Scraper hooks (Go worker workflow)
+  const triggerLegacyMutation = useTriggerScraper();
+  const cancelLegacyMutation = useCancelScraper();
+  const { data: legacyJobsData } = useScrapeJobs();
 
   if (!isOpen) return null;
 
-  const allJobs = jobsData?.jobs || [];
-  // Show active jobs or recently completed jobs
-  const relevantJobs = allJobs.slice(0, 4);
-  const hasActiveJobs = triggerMutation.isPending || allJobs.some((j) => j.status === 'running' || j.status === 'pending');
+  const discoveryJobs = discoveryJobsData?.jobs || [];
+  const legacyJobs = legacyJobsData?.jobs || [];
 
-  async function handleStart() {
+  const relevantDiscoveryJobs = discoveryJobs.slice(0, 4);
+  const relevantLegacyJobs = legacyJobs.slice(0, 3);
+
+  const hasActiveDiscovery =
+    triggerDiscoveryMutation.isPending ||
+    discoveryJobs.some((j) => j.status === 'running' || j.status === 'pending');
+  const hasActiveLegacy =
+    triggerLegacyMutation.isPending ||
+    legacyJobs.some((j) => j.status === 'running' || j.status === 'pending');
+  const hasActiveJobs = hasActiveDiscovery || hasActiveLegacy;
+
+  function getTargetCoordinates(): { lat: number; lng: number } {
+    if (mode === 'coordinates' && currentCenter) {
+      return { lat: currentCenter.lat, lng: currentCenter.lng };
+    }
+    const preset = CITY_PRESET_OPTIONS.find((p) => p.name === region);
+    return { lat: preset?.lat ?? 12.9716, lng: preset?.lng ?? 77.5946 };
+  }
+
+  // Primary action: Python Discovery Pipeline
+  async function handleStartDiscovery() {
     setErrorText(null);
     setSuccessNotice(null);
+    const { lat, lng } = getTargetCoordinates();
+
     try {
-      if (mode === 'coordinates' && currentCenter) {
-        const res = await triggerMutation.mutateAsync({
-          region: `Loc(${currentCenter.lat.toFixed(3)}, ${currentCenter.lng.toFixed(3)})`,
-          lat: currentCenter.lat,
-          lng: currentCenter.lng,
-          radius_km: radiusKm,
-        });
-        onTriggerJob(res.id);
-        setSuccessNotice(`Queued scrape at (${currentCenter.lat.toFixed(3)}, ${currentCenter.lng.toFixed(3)})`);
-      } else {
-        const preset = CITY_PRESET_OPTIONS.find((p) => p.name === region);
-        const res = await triggerMutation.mutateAsync({
-          region,
-          lat: preset?.lat,
-          lng: preset?.lng,
-          radius_km: radiusKm,
-        });
-        onTriggerJob(res.id);
-        setSuccessNotice(`Queued scrape for ${region}`);
-      }
+      const res = await triggerDiscoveryMutation.mutateAsync({
+        lat,
+        lng,
+        radius_km: radiusKm,
+      });
+      onTriggerJob(res.id);
+      setSuccessNotice(
+        `Dispatched Python Discovery around (${lat.toFixed(3)}, ${lng.toFixed(3)}) with ${radiusKm}km radius.`
+      );
     } catch (err: any) {
-      setErrorText(err.message || 'Failed to trigger scraper');
+      setErrorText(err.message || 'Failed to dispatch discovery job');
     }
   }
 
-  async function handleCancel(jobId: string) {
+  // Secondary action: Legacy Go Scraper
+  async function handleStartLegacyScraper() {
+    setErrorText(null);
+    setSuccessNotice(null);
+    const { lat, lng } = getTargetCoordinates();
+
     try {
-      await cancelMutation.mutateAsync(jobId);
+      const res = await triggerLegacyMutation.mutateAsync({
+        region: mode === 'coordinates' ? `Loc(${lat.toFixed(3)}, ${lng.toFixed(3)})` : region,
+        lat,
+        lng,
+        radius_km: radiusKm,
+      });
+      onTriggerJob(res.id);
+      setSuccessNotice(`Dispatched legacy Go scraper for ${region}`);
+    } catch (err: any) {
+      setErrorText(err.message || 'Failed to dispatch legacy scraper');
+    }
+  }
+
+  async function handleCancelDiscovery(jobId: string) {
+    try {
+      await cancelDiscoveryMutation.mutateAsync(jobId);
+    } catch (err: any) {
+      setErrorText(err.message || 'Failed to cancel discovery job');
+    }
+  }
+
+  async function handleCancelLegacy(jobId: string) {
+    try {
+      await cancelLegacyMutation.mutateAsync(jobId);
     } catch (err: any) {
       setErrorText(err.message || 'Failed to cancel scraper');
     }
@@ -129,22 +182,24 @@ export default function ScrapeModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Run Scraper Pipeline"
+      aria-label="Company Discovery & Scraper Pipeline"
       className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
     >
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">🕷️</span>
+            <span className="text-2xl">✨</span>
             <div>
-              <h3 className="font-bold text-slate-100 text-base">Run Scraper Pipeline</h3>
-              <p className="text-xs text-slate-400">Multi-source: OpenStreetMap + Wikidata + Tech Parks</p>
+              <h3 className="font-bold text-slate-100 text-base">Company Discovery</h3>
+              <p className="text-xs text-slate-400">
+                Multi-source Python Discovery: ATS Jobs, Directories & Registries
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close scrape dialog"
+            aria-label="Close discovery dialog"
             className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -180,7 +235,7 @@ export default function ScrapeModal({
             </button>
           </div>
 
-          {/* Trigger Form Controls */}
+          {/* Location Controls & Primary Trigger */}
           <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
             {mode === 'coordinates' ? (
               <div className="space-y-1 text-xs">
@@ -196,12 +251,15 @@ export default function ScrapeModal({
                   <p className="text-slate-400">Map coordinates not detected.</p>
                 )}
                 <p className="text-[10px] text-slate-400 pt-0.5">
-                  Discovers tech offices centered around your active map location.
+                  Discovers tech companies and jobs centered around your active map location.
                 </p>
               </div>
             ) : (
               <div>
-                <label htmlFor="target-tech-hub-select" className="block text-xs font-semibold text-slate-300 mb-1">
+                <label
+                  htmlFor="target-tech-hub-select"
+                  className="block text-xs font-semibold text-slate-300 mb-1"
+                >
                   Target Tech Hub
                 </label>
                 <select
@@ -228,7 +286,7 @@ export default function ScrapeModal({
                 id="scrape-radius-slider"
                 aria-label="Search radius in kilometers"
                 type="range"
-                min={5}
+                min={1}
                 max={30}
                 step={1}
                 value={radiusKm}
@@ -237,19 +295,20 @@ export default function ScrapeModal({
               />
             </div>
 
+            {/* Primary Action Button */}
             <div className="flex items-center justify-end pt-1">
               <button
                 type="button"
-                onClick={handleStart}
-                disabled={triggerMutation.isPending}
+                onClick={handleStartDiscovery}
+                disabled={triggerDiscoveryMutation.isPending}
                 className="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
               >
-                {triggerMutation.isPending ? (
+                {triggerDiscoveryMutation.isPending ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <Sparkles className="w-3.5 h-3.5 fill-current" />
                 )}
-                <span>Dispatch Scraper</span>
+                <span>Run Company Discovery</span>
               </button>
             </div>
           </div>
@@ -269,21 +328,21 @@ export default function ScrapeModal({
             </div>
           )}
 
-          {/* Active & Recent Jobs List */}
-          {relevantJobs.length > 0 && (
+          {/* Active & Recent Python Discovery Jobs */}
+          {relevantDiscoveryJobs.length > 0 && (
             <div className="space-y-2 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span className="font-semibold flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-amber-400" />
-                  Recent & Active Pipelines ({relevantJobs.length})
+                <span className="font-semibold flex items-center gap-1.5 text-slate-200">
+                  <Compass className="w-3.5 h-3.5 text-amber-400" />
+                  Discovery Jobs ({relevantDiscoveryJobs.length})
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">Concurrent Worker Fleet</span>
+                <span className="text-[10px] text-slate-400 font-mono">Python Workers</span>
               </div>
 
               <div className="space-y-2">
-                {relevantJobs.map((job) => {
-                  const isJobActive = job.status === 'running' || job.status === 'pending';
-                  const tasks = job.tasks || [];
+                {relevantDiscoveryJobs.map((job: DiscoveryJob) => {
+                  const isActive = job.status === 'running' || job.status === 'pending';
+                  const sourceRuns = job.source_runs || [];
                   return (
                     <div
                       key={job.id}
@@ -291,26 +350,30 @@ export default function ScrapeModal({
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {isJobActive ? (
+                          {isActive ? (
                             <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                          ) : job.status === 'done' ? (
+                          ) : job.status === 'completed' ? (
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : job.status === 'partial' ? (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
                           ) : (
                             <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
                           )}
                           <span className="font-semibold text-slate-200">
-                            {job.region || 'Coordinates Scrape'}
+                            Discovery ({job.lat.toFixed(3)}, {job.lng.toFixed(3)})
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">
-                            {job.radius_km ? `${job.radius_km} km` : ''}
+                            {job.radius_km} km
                           </span>
                         </div>
 
                         <div className="flex items-center gap-2">
                           <span
                             className={`font-mono px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
-                              job.status === 'done'
+                              job.status === 'completed'
                                 ? 'text-emerald-400 bg-emerald-500/10'
+                                : job.status === 'partial'
+                                ? 'text-amber-400 bg-amber-500/10'
                                 : job.status === 'cancelled'
                                 ? 'text-slate-400 bg-slate-500/10'
                                 : job.status === 'failed'
@@ -320,10 +383,11 @@ export default function ScrapeModal({
                           >
                             {job.status}
                           </span>
-                          {isJobActive && (
+                          {isActive && (
                             <button
                               type="button"
-                              onClick={() => handleCancel(job.id)}
+                              onClick={() => handleCancelDiscovery(job.id)}
+                              disabled={cancelDiscoveryMutation.isPending}
                               className="px-2 py-0.5 text-[10px] font-semibold rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
                             >
                               Cancel
@@ -332,38 +396,133 @@ export default function ScrapeModal({
                         </div>
                       </div>
 
-                      {/* Discovered Stats & Task badges */}
+                      {/* Discovered Stats */}
                       <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
-                        <span>Discovered: <strong className="text-amber-400 font-mono">{job.sightings}</strong> sightings</span>
-                        {tasks.length > 0 && (
-                          <div className="flex items-center gap-1">
-                            {tasks.map((t: ScrapeTask) => (
-                              <span
-                                key={t.id}
-                                className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300"
-                              >
-                                {t.source}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                          <span>
+                            Companies: <strong className="text-amber-400 font-mono">{job.company_count}</strong>
+                          </span>
+                          <span>
+                            Tech Jobs: <strong className="text-indigo-400 font-mono">{job.job_count}</strong>
+                          </span>
+                          <span>
+                            Evidence: <strong className="text-slate-300 font-mono">{job.evidence_count}</strong>
+                          </span>
+                        </div>
                       </div>
+
+                      {/* Source runs breakdown */}
+                      {sourceRuns.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                          {sourceRuns.map((sr: DiscoverySourceRun) => (
+                            <span
+                              key={sr.id}
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1"
+                            >
+                              <span className="font-semibold">{sr.source}</span>
+                              <span className="text-amber-400">({sr.company_count} co / {sr.job_count} jobs)</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
           )}
+
+          {/* Secondary / Legacy Scraper Section */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={() => setShowLegacySection(!showLegacySection)}
+              className="flex items-center justify-between w-full py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5 font-medium">
+                <Cpu className="w-3.5 h-3.5 text-slate-500" />
+                Legacy OSM/Wikidata Scraper (Go Worker)
+              </span>
+              {showLegacySection ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              )}
+            </button>
+
+            {showLegacySection && (
+              <div className="mt-2.5 p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-3 animate-in fade-in duration-150">
+                <p className="text-[11px] text-slate-400">
+                  The legacy Go crawler queries OpenStreetMap, Wikidata, and curated tech park databases directly.
+                </p>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-300 font-medium">
+                    Dispatch Go Scraper
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleStartLegacyScraper}
+                    disabled={triggerLegacyMutation.isPending}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
+                  >
+                    {triggerLegacyMutation.isPending ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Play className="w-3 h-3 fill-current" />
+                    )}
+                    <span>Dispatch Legacy Scraper</span>
+                  </button>
+                </div>
+
+                {relevantLegacyJobs.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-slate-800/60">
+                    <span className="text-[10px] text-slate-400 font-semibold block">
+                      Recent Go Scrapes:
+                    </span>
+                    {relevantLegacyJobs.map((job) => {
+                      const isLegacyActive = job.status === 'running' || job.status === 'pending';
+                      return (
+                        <div
+                          key={job.id}
+                          className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-slate-900 border border-slate-800/60 text-slate-300"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{job.region || 'Coordinates'}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              ({job.sightings} sightings)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] uppercase font-mono text-slate-400">
+                              {job.status}
+                            </span>
+                            {isLegacyActive && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelLegacy(job.id)}
+                                className="px-1.5 py-0.5 text-[9px] rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/30"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-800 shrink-0">
           <span className="text-[11px] text-slate-400">
             {hasActiveJobs
-              ? 'Jobs execute in parallel in the background.'
-              : relevantJobs.length > 0
-              ? 'All background pipelines completed.'
-              : 'Ready to dispatch background pipelines.'}
+              ? 'Pipelines are running concurrently in the background.'
+              : 'Ready to discover tech companies nearby.'}
           </span>
           {hasActiveJobs ? (
             <button

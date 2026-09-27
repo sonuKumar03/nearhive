@@ -21,7 +21,9 @@ import {
   ChevronUp,
   Cpu,
   Compass,
+  Clock,
 } from 'lucide-react';
+import { useLiveTimer, getJobRuntimeInfo, formatDurationMs } from '@/lib/runtime';
 
 interface ScrapeModalProps {
   isOpen: boolean;
@@ -97,8 +99,6 @@ export default function ScrapeModal({
   const cancelLegacyMutation = useCancelScraper();
   const { data: legacyJobsData } = useScrapeJobs();
 
-  if (!isOpen) return null;
-
   const discoveryJobs = discoveryJobsData?.jobs || [];
   const legacyJobs = legacyJobsData?.jobs || [];
 
@@ -112,6 +112,9 @@ export default function ScrapeModal({
     triggerLegacyMutation.isPending ||
     legacyJobs.some((j) => j.status === 'running' || j.status === 'pending');
   const hasActiveJobs = hasActiveDiscovery || hasActiveLegacy;
+  const now = useLiveTimer(isOpen && hasActiveJobs);
+
+  if (!isOpen) return null;
 
   function getTargetCoordinates(): { lat: number; lng: number } {
     if (mode === 'coordinates' && currentCenter) {
@@ -393,6 +396,7 @@ export default function ScrapeModal({
               <div className="space-y-2">
                 {relevantLegacyJobs.map((job) => {
                   const isLegacyActive = job.status === 'running' || job.status === 'pending';
+                  const legacyRuntime = getJobRuntimeInfo(job, now);
                   return (
                     <div
                       key={job.id}
@@ -420,6 +424,20 @@ export default function ScrapeModal({
                         </div>
 
                         <div className="flex items-center gap-2">
+                          {legacyRuntime.text && (
+                            <span
+                              className={`font-mono px-2 py-0.5 rounded text-[10px] flex items-center gap-1 ${
+                                legacyRuntime.isRunning
+                                  ? 'text-amber-300 bg-amber-500/10 border border-amber-500/20'
+                                  : legacyRuntime.isPending
+                                  ? 'text-slate-400 bg-slate-900 border border-slate-800'
+                                  : 'text-slate-400 bg-slate-900 border border-slate-800/80'
+                              }`}
+                            >
+                              <Clock className={`w-2.5 h-2.5 ${legacyRuntime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                              <span>{legacyRuntime.text}</span>
+                            </span>
+                          )}
                           <span
                             className={`font-mono px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
                               job.status === 'done'
@@ -476,6 +494,7 @@ export default function ScrapeModal({
               <div className="space-y-2">
                 {relevantDiscoveryJobs.map((job: DiscoveryJob) => {
                   const isActive = job.status === 'running' || job.status === 'pending';
+                  const runtime = getJobRuntimeInfo(job, now);
                   const sourceRuns = job.source_runs || [];
                   return (
                     <div
@@ -502,6 +521,20 @@ export default function ScrapeModal({
                         </div>
 
                         <div className="flex items-center gap-2">
+                          {runtime.text && (
+                            <span
+                              className={`font-mono px-2 py-0.5 rounded text-[10px] flex items-center gap-1 ${
+                                runtime.isRunning
+                                  ? 'text-amber-300 bg-amber-500/10 border border-amber-500/20'
+                                  : runtime.isPending
+                                  ? 'text-slate-400 bg-slate-900 border border-slate-800'
+                                  : 'text-slate-400 bg-slate-900 border border-slate-800/80'
+                              }`}
+                            >
+                              <Clock className={`w-2.5 h-2.5 ${runtime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                              <span>{runtime.text}</span>
+                            </span>
+                          )}
                           <span
                             className={`font-mono px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
                               job.status === 'completed'
@@ -555,6 +588,11 @@ export default function ScrapeModal({
                             >
                               <span className="font-semibold">{sr.source}</span>
                               <span className="text-amber-400">({sr.company_count} co / {sr.job_count} jobs)</span>
+                              {sr.status === 'running' ? (
+                                <span className="text-amber-300 font-semibold animate-pulse">• running</span>
+                              ) : sr.duration_ms > 0 ? (
+                                <span className="text-slate-400">• {formatDurationMs(sr.duration_ms)}</span>
+                              ) : null}
                             </span>
                           ))}
                         </div>

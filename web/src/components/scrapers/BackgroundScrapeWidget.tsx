@@ -22,7 +22,9 @@ import {
   Building2,
   Briefcase,
   Compass,
+  Clock,
 } from 'lucide-react';
+import { useLiveTimer, getJobRuntimeInfo, formatDurationMs } from '@/lib/runtime';
 
 interface BackgroundScrapeWidgetProps {
   activeJobIds: string[];
@@ -57,9 +59,6 @@ export default function BackgroundScrapeWidget({
     (j) => activeJobIds.includes(j.id) || j.status === 'running' || j.status === 'pending'
   );
 
-  const totalRelevantCount = relevantDiscoveryJobs.length + relevantLegacyJobs.length;
-  if (totalRelevantCount === 0) return null;
-
   const runningDiscovery = relevantDiscoveryJobs.filter(
     (j) => j.status === 'running' || j.status === 'pending'
   );
@@ -67,6 +66,10 @@ export default function BackgroundScrapeWidget({
     (j) => j.status === 'running' || j.status === 'pending'
   );
   const isAnyRunning = runningDiscovery.length > 0 || runningLegacy.length > 0;
+  const now = useLiveTimer(isAnyRunning);
+
+  const totalRelevantCount = relevantDiscoveryJobs.length + relevantLegacyJobs.length;
+  if (totalRelevantCount === 0) return null;
 
   // Render single Discovery job
   if (relevantDiscoveryJobs.length === 1 && relevantLegacyJobs.length === 0) {
@@ -75,6 +78,7 @@ export default function BackgroundScrapeWidget({
     const isDone = job.status === 'completed';
     const isPartial = job.status === 'partial';
     const isCancelled = job.status === 'cancelled';
+    const runtime = getJobRuntimeInfo(job, now);
 
     const sourceRuns: DiscoverySourceRun[] = job.source_runs || [];
     const completedSources = sourceRuns.filter(
@@ -156,6 +160,14 @@ export default function BackgroundScrapeWidget({
                 </span>{' '}
                 ({job.radius_km} km)
               </p>
+              {runtime.text && (
+                <p className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mt-0.5">
+                  <Clock className={`w-2.5 h-2.5 ${runtime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                  <span className={runtime.isRunning ? 'text-amber-300 font-medium' : 'text-slate-300'}>
+                    {runtime.text}
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -286,6 +298,7 @@ export default function BackgroundScrapeWidget({
     const isRunning = job.status === 'running' || job.status === 'pending';
     const isDone = job.status === 'done';
     const isCancelled = job.status === 'cancelled';
+    const legacyRuntime = getJobRuntimeInfo(job, now);
     const tasks: ScrapeTask[] = job.tasks || [];
 
     return (
@@ -329,6 +342,14 @@ export default function BackgroundScrapeWidget({
               <p className="text-[11px] text-slate-400">
                 Hub: <span className="font-semibold text-slate-200">{job.region || 'Coordinates'}</span>
               </p>
+              {legacyRuntime.text && (
+                <p className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mt-0.5">
+                  <Clock className={`w-2.5 h-2.5 ${legacyRuntime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                  <span className={legacyRuntime.isRunning ? 'text-amber-300 font-medium' : 'text-slate-300'}>
+                    {legacyRuntime.text}
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -476,6 +497,7 @@ export default function BackgroundScrapeWidget({
           {/* Discovery Jobs */}
           {relevantDiscoveryJobs.map((j: DiscoveryJob) => {
             const isRunning = j.status === 'running' || j.status === 'pending';
+            const runtime = getJobRuntimeInfo(j, now);
             return (
               <div
                 key={j.id}
@@ -494,9 +516,22 @@ export default function BackgroundScrapeWidget({
                       Discovery ({j.lat.toFixed(2)}, {j.lng.toFixed(2)})
                     </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {j.company_count} co • {j.job_count} jobs • {j.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                    <span>
+                      {j.company_count} co • {j.job_count} jobs
+                    </span>
+                    {runtime.text ? (
+                      <>
+                        <span>•</span>
+                        <span className={`flex items-center gap-0.5 ${runtime.isRunning ? 'text-amber-300 font-medium' : 'text-slate-400'}`}>
+                          <Clock className={`w-2.5 h-2.5 ${runtime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                          <span>{runtime.text}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span>• {j.status}</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -522,6 +557,7 @@ export default function BackgroundScrapeWidget({
           {/* Legacy Go Scrape Jobs */}
           {relevantLegacyJobs.map((j: ScrapeJob) => {
             const isRunning = j.status === 'running' || j.status === 'pending';
+            const legacyRuntime = getJobRuntimeInfo(j, now);
             return (
               <div
                 key={j.id}
@@ -538,9 +574,20 @@ export default function BackgroundScrapeWidget({
                     )}
                     <span>Legacy {j.region || 'Coordinates'}</span>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {j.sightings} sightings • {j.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                    <span>{j.sightings} sightings</span>
+                    {legacyRuntime.text ? (
+                      <>
+                        <span>•</span>
+                        <span className={`flex items-center gap-0.5 ${legacyRuntime.isRunning ? 'text-amber-300 font-medium' : 'text-slate-400'}`}>
+                          <Clock className={`w-2.5 h-2.5 ${legacyRuntime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
+                          <span>{legacyRuntime.text}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span>• {j.status}</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5">

@@ -14,6 +14,7 @@ import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
+import { useLiveTimer, getJobRuntimeInfo } from '@/lib/runtime';
 import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown, Sparkles } from 'lucide-react';
 
 const CITY_PRESETS = [
@@ -84,6 +85,9 @@ export default function HomePage() {
     runningJobs.reduce((acc, j) => acc + (j.sightings || 0), 0) +
     runningDiscovery.reduce((acc, j) => acc + (j.company_count || 0), 0);
   const isAnyJobRunning = runningJobs.length > 0 || runningDiscovery.length > 0;
+  const now = useLiveTimer(isAnyJobRunning);
+  const activeJob = runningDiscovery[0] || runningJobs[0];
+  const activeRuntime = activeJob ? getJobRuntimeInfo(activeJob, now) : null;
 
   const { data: searchData, isLoading: loadingCompanies } = useCompanies({
     lat: center.lat,
@@ -350,8 +354,14 @@ export default function HomePage() {
                   ? `Crawling ${runningJobs[0].region}...`
                   : `${runningJobs.length} Scrapers Active`}
               </span>
-              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold">
-                {totalRunningSightings} found
+              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold flex items-center gap-1">
+                <span>{totalRunningSightings} found</span>
+                {activeRuntime?.shortText && (
+                  <>
+                    <span className="opacity-40">•</span>
+                    <span>{activeRuntime.shortText}</span>
+                  </>
+                )}
               </span>
             </button>
           )}

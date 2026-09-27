@@ -73,6 +73,7 @@ services:
       LOG_LEVEL: info
     volumes:
       - ./config:/app/config:ro
+      - ./python-discovery/nearhive_discovery:/app/nearhive_discovery:ro
     restart: unless-stopped
 
   web:

@@ -44,6 +44,12 @@ def is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     Blocks private RFC 1918, loopback, link-local, multicast, reserved,
     carrier-grade NAT, unspecified, and IPv6 unique local addresses.
     """
+    # RFC 6052 Well-Known Prefix for NAT64 (64:ff9b::/96)
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip in ipaddress.IPv6Network("64:ff9b::/96"):
+            embedded = ipaddress.IPv4Address(ip.packed[-4:])
+            return is_safe_ip(embedded)
+
     if ip.is_private or ip.is_loopback or ip.is_link_local:
         return False
     if ip.is_multicast or ip.is_reserved or ip.is_unspecified:

@@ -340,7 +340,11 @@ class Worker:
 def get_default_sources() -> list[Source]:
     """Loads configured discovery sources from config file or defaults."""
     from pathlib import Path
+    import yaml
     from nearhive_discovery.sources.configured_directory import ConfiguredDirectorySource
+    from nearhive_discovery.sources.greenhouse import GreenhouseSource
+    from nearhive_discovery.sources.lever import LeverSource
+    from nearhive_discovery.sources.osm import OpenStreetMapSource
 
     sources: list[Source] = []
     config_candidates = [
@@ -352,8 +356,32 @@ def get_default_sources() -> list[Source]:
         if p.exists():
             try:
                 loaded = ConfiguredDirectorySource.load_all(p)
-                sources.extend(loaded)
-                logger.info("Loaded %d directory sources from %s", len(loaded), p)
+                # Filter out unresolvable example placeholders
+                valid_dirs = [s for s in loaded if "example.com" not in getattr(s, "url_template", "")]
+                sources.extend(valid_dirs)
+                if valid_dirs:
+                    logger.info("Loaded %d directory sources from %s", len(valid_dirs), p)
+
+                with p.open("r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+
+                # Load OSM source (enabled by default unless explicitly disabled)
+                osm_cfg = data.get("osm", {})
+                if osm_cfg.get("enabled", True):
+                    endpoints = osm_cfg.get("endpoints")
+                    sources.append(OpenStreetMapSource(endpoints=endpoints))
+                    logger.info("Loaded OpenStreetMap candidate discovery source")
+
+                gh_boards = data.get("greenhouse", [])
+                if gh_boards:
+                    sources.append(GreenhouseSource(boards=gh_boards))
+                    logger.info("Loaded Greenhouse source with %d boards from %s", len(gh_boards), p)
+
+                lever_boards = data.get("lever", [])
+                if lever_boards:
+                    sources.append(LeverSource(boards=lever_boards))
+                    logger.info("Loaded Lever source with %d boards from %s", len(lever_boards), p)
+
                 break
             except Exception as exc:
                 logger.warning("Failed to load sources from %s: %s", p, exc)

@@ -4,6 +4,7 @@ from nearhive_discovery.sources.configured_directory import ConfiguredDirectoryS
 from nearhive_discovery.sources.greenhouse import GreenhouseSource
 from nearhive_discovery.sources.jsonld import extract_jsonld
 from nearhive_discovery.sources.lever import LeverSource
+from nearhive_discovery.sources.osm import OpenStreetMapSource
 
 __all__ = [
     "SourceAdapter",
@@ -13,5 +14,6 @@ __all__ = [
     "CompanySiteSource",
     "GreenhouseSource",
     "LeverSource",
+    "OpenStreetMapSource",
 ]
 

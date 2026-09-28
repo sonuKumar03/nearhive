@@ -528,6 +528,171 @@ def test_inferred_does_not_overwrite_provider() -> None:
             conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
 
 
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_eligibility_scopes_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-eligibility-test-{suffix}"
+    domain = f"{suffix}.example"
+
+    def remote_job(source_job_id: str, scopes: list[str]) -> TechnicalJobEvidence:
+        return TechnicalJobEvidence(
+            company_name="Remote Eligibility Test Company",
+            company_domain=domain,
+            title="Remote Software Engineer",
+            source_job_id=source_job_id,
+            canonical_url=f"https://{domain}/jobs/{source_job_id}",
+            work_arrangement=WorkArrangement.REMOTE,
+            remote_scopes=scopes,
+            technical_classification="software",
+        )
+
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote Eligibility Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            remote_job(f"global-{suffix}", ["GLOBAL"]),
+            remote_job(f"india-{suffix}", ["IN"]),
+            remote_job(f"empty-{suffix}", []),
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                rows = conn.execute(
+                    """SELECT j.source_job_id, e.scope_type, e.scope_code, e.is_active, e.confidence
+                       FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s
+                       ORDER BY j.source_job_id, e.scope_type, e.scope_code""",
+                    (source,),
+                ).fetchall()
+            assert [
+                row for row in rows if row[0] == f"global-{suffix}"
+            ] == [(f"global-{suffix}", "global", "GLOBAL", True, 0.8)]
+            assert [
+                row for row in rows if row[0] == f"india-{suffix}"
+            ] == [(f"india-{suffix}", "country", "IN", True, 0.8)]
+            assert [row for row in rows if row[0] == f"empty-{suffix}"] == []
+
+            persistence.persist(
+                replace(batch, jobs=[replace(batch.jobs[0], remote_scopes=[])])
+            )
+            with psycopg.connect(database_url) as conn:
+                remaining = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s""",
+                    (source, f"global-{suffix}"),
+                ).fetchone()[0]
+            assert remaining == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_without_scope_not_india_eligible() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-noscope-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote NoScope Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Remote NoScope Test Company",
+                company_domain=domain,
+                title="Remote Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                work_arrangement=WorkArrangement.REMOTE,
+                technical_classification="software",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            eligibility_count = conn.execute(
+                """SELECT count(*) FROM job_remote_eligibility e
+                   JOIN technical_job_postings j ON j.id = e.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()[0]
+            active_india = conn.execute(
+                """SELECT count(*) FROM job_remote_eligibility e
+                   JOIN technical_job_postings j ON j.id = e.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s
+                     AND e.is_active
+                     AND (e.scope_type = 'global'
+                          OR (e.scope_type = 'country' AND e.scope_code = 'IN'))""",
+                (source, suffix),
+            ).fetchone()[0]
+
+        assert eligibility_count == 0
+        assert active_india == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
 def test_persistence_rejects_invalid_coordinates_before_connecting() -> None:
     batch = EvidenceBatch(
         contract_version=1,

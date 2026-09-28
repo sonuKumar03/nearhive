@@ -104,6 +104,7 @@ class TechnicalJobEvidence:
     rule_version: str = "v1"
     classification_reasons: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    remote_scopes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

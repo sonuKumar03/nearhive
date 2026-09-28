@@ -35,6 +35,26 @@ def _content_hash(*parts: str) -> str:
     return hashlib.sha256("\0".join(parts).encode()).hexdigest()
 
 
+def _remote_scope_rows(scopes: list[str]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for code in scopes:
+        code = code.strip()
+        if not code:
+            continue
+        if code == "GLOBAL":
+            scope_type = "global"
+        elif re.fullmatch(r"[A-Z]{2}", code):
+            scope_type = "country"
+        else:
+            scope_type = "region"
+        row = (scope_type, code)
+        if row not in seen:
+            seen.add(row)
+            rows.append(row)
+    return rows
+
+
 def _validate_coordinates(lat: float | None, lng: float | None, label: str) -> None:
     if (lat is None) != (lng is None):
         raise ValueError(f"{label}: latitude and longitude must be provided together")
@@ -331,6 +351,9 @@ class PostgresPersistence:
             publication_state = getattr(
                 evidence.publication_state, "value", str(evidence.publication_state)
             )
+            work_arrangement = getattr(
+                evidence.work_arrangement, "value", str(evidence.work_arrangement)
+            )
             cur.execute(
                 f"""INSERT INTO technical_job_postings (
                     company_id, discovery_job_id, source, source_family, source_job_id,
@@ -362,7 +385,7 @@ class PostgresPersistence:
                     company_id, self._discovery_job_id(batch.discovery_job_id), batch.source, batch.source_family,
                     source_job_id, evidence.canonical_url or None, evidence.title.strip(),
                     evidence.title.strip().casefold(), evidence.description_excerpt, digest,
-                    getattr(evidence.work_arrangement, "value", str(evidence.work_arrangement)),
+                    work_arrangement,
                     publication_state, evidence.posted_at,
                     evidence.posted_at_confidence, evidence.first_seen_at, evidence.last_seen_at,
                     evidence.technical_classification or "software_engineering", evidence.rule_version,
@@ -408,6 +431,26 @@ class PostgresPersistence:
                 )
             else:
                 cur.execute("DELETE FROM job_locations WHERE job_id = %s", (job_id,))
+            if work_arrangement == "remote":
+                scope_rows = _remote_scope_rows(evidence.remote_scopes)
+                if scope_rows:
+                    cur.executemany(
+                        """INSERT INTO job_remote_eligibility (
+                            job_id, scope_type, scope_code, source_record_id,
+                            confidence, is_active, last_seen_at
+                        ) VALUES (%s, %s, %s, NULL, 0.8, true, clock_timestamp())
+                        ON CONFLICT (job_id, scope_type, scope_code) DO UPDATE SET
+                            is_active = true,
+                            last_seen_at = EXCLUDED.last_seen_at""",
+                        [
+                            (job_id, scope_type, scope_code)
+                            for scope_type, scope_code in scope_rows
+                        ],
+                    )
+                else:
+                    cur.execute(
+                        "DELETE FROM job_remote_eligibility WHERE job_id = %s", (job_id,)
+                    )
             return str(job_id)
 
     def _register_source(self, source: str, source_family: str) -> str:

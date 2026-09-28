@@ -94,6 +94,7 @@ class TechnicalJobEvidence:
     location_raw: str = ""
     lat: float | None = None
     lng: float | None = None
+    coordinate_source: str = "unknown"
     work_arrangement: WorkArrangement = WorkArrangement.UNKNOWN
     publication_state: PublicationState = PublicationState.OBSERVED_RECENTLY
     posted_at: datetime | None = None
@@ -104,6 +105,7 @@ class TechnicalJobEvidence:
     rule_version: str = "v1"
     classification_reasons: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    remote_scopes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -136,6 +138,8 @@ class TechnicalJobEvidence:
             d["lat"] = self.lat
         if self.lng is not None:
             d["lng"] = self.lng
+        if self.coordinate_source != "unknown":
+            d["coordinate_source"] = self.coordinate_source
         if self.posted_at is not None:
             d["posted_at"] = format_iso8601(self.posted_at)
         return d

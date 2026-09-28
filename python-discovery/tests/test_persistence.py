@@ -1,6 +1,7 @@
 import os
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import psycopg
 import pytest
@@ -96,6 +97,758 @@ def test_batch_persistence_is_canonical_and_idempotent() -> None:
         with psycopg.connect(database_url) as conn:
             conn.execute("DELETE FROM sightings WHERE source = %s", (source,))
             conn.execute("DELETE FROM companies WHERE domain IN (%s, %s)", (domain, other_domain))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_provenance_rows_written_and_idempotent() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"provenance-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Provenance Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Provenance Test Company",
+                company_domain=domain,
+                title="Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                technical_classification="software",
+            )
+        ],
+    )
+    hash_keyed_batch = replace(
+        batch, companies=[replace(batch.companies[0], source_record_id=None)], jobs=[]
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                company_seen_first = conn.execute(
+                    """SELECT sr.last_seen_at FROM source_records sr
+                       JOIN data_sources ds ON ds.id = sr.data_source_id
+                       WHERE ds.slug = %s AND sr.record_type = 'company' AND sr.external_id = %s""",
+                    (source, suffix),
+                ).fetchone()[0]
+            persistence.persist(batch)
+            persistence.persist(hash_keyed_batch)
+            persistence.persist(hash_keyed_batch)
+
+        with psycopg.connect(database_url) as conn:
+            data_sources = conn.execute(
+                "SELECT id, name, source_type, source_family FROM data_sources WHERE slug = %s",
+                (source,),
+            ).fetchall()
+            data_source_id = data_sources[0][0]
+            runs = conn.execute(
+                """SELECT status, accepted_count, rejected_count, finished_at IS NOT NULL,
+                          adapter_version FROM ingestion_runs
+                   WHERE data_source_id = %s ORDER BY started_at""",
+                (data_source_id,),
+            ).fetchall()
+            records = conn.execute(
+                """SELECT record_type, external_id, count(*), max(last_seen_at),
+                          max(normalized_payload_hash) IS NOT NULL
+                   FROM source_records WHERE data_source_id = %s
+                   GROUP BY record_type, external_id""",
+                (data_source_id,),
+            ).fetchall()
+            job_record = conn.execute(
+                """SELECT normalized_payload->>'title', source_url FROM source_records
+                   WHERE data_source_id = %s AND record_type = 'job' AND external_id = %s""",
+                (data_source_id, suffix),
+            ).fetchone()
+            company_links = conn.execute(
+                """SELECT count(*) FROM company_source_links csl
+                   JOIN source_records sr ON sr.id = csl.source_record_id
+                   WHERE sr.data_source_id = %s AND csl.relation = 'evidence' AND csl.confidence = 1.0""",
+                (data_source_id,),
+            ).fetchone()[0]
+            job_links = conn.execute(
+                """SELECT count(*) FROM job_source_links jsl
+                   JOIN source_records sr ON sr.id = jsl.source_record_id
+                   WHERE sr.data_source_id = %s AND jsl.relation = 'evidence' AND jsl.confidence = 1.0""",
+                (data_source_id,),
+            ).fetchone()[0]
+
+        company_seen_second = next(
+            row[3] for row in records if row[0] == "company" and row[1] == suffix
+        )
+        assert len(data_sources) == 1
+        assert data_sources[0][1:] == (source, "official_site", "official_site")
+        assert [run[0] for run in runs] == ["completed"] * 4
+        assert [run[1] for run in runs] == [2, 2, 1, 1]
+        assert all(run[2] == 0 and run[3] and run[4] == "v1" for run in runs)
+        assert {(row[0], row[1]): row[2] for row in records} == {
+            ("company", suffix): 1,
+            ("company", None): 1,
+            ("job", suffix): 1,
+        }
+        assert all(row[4] for row in records)
+        assert job_record == ("Software Engineer", f"https://{domain}/jobs/{suffix}")
+        assert (company_links, job_links) == (2, 1)
+        assert company_seen_second > company_seen_first
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_company_alias_and_domain_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"identity-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Identity Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            company_id = conn.execute(
+                "SELECT id FROM companies WHERE domain = %s", (domain,)
+            ).fetchone()[0]
+            aliases = conn.execute(
+                """SELECT alias, normalized_alias, alias_type FROM company_aliases
+                   WHERE company_id = %s AND alias_type = 'source_name'""",
+                (company_id,),
+            ).fetchall()
+            domains = conn.execute(
+                """SELECT normalized_domain, domain_type, is_primary, is_active
+                   FROM company_domains WHERE company_id = %s""",
+                (company_id,),
+            ).fetchall()
+
+        assert aliases == [("Identity Test Company", "identity test company", "source_name")]
+        assert domains == [(domain, "primary", True, True)]
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM sightings WHERE source = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_location_lifecycle_fields_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"lifecycle-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Lifecycle Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="  12   Lifecycle Road  ",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                row = conn.execute(
+                    """SELECT location_type, status, country_code, address_hash, first_seen_at, last_seen_at
+                       FROM locations WHERE company_id = (SELECT id FROM companies WHERE domain = %s)""",
+                    (domain,),
+                ).fetchone()
+                assert row is not None
+                assert row[0] == "office"
+                assert row[1] == "unverified"
+                assert row[2] == "IN"
+                assert row[3] is not None
+                first_seen, last_seen = row[4], row[5]
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            locations = conn.execute(
+                """SELECT id, address_hash, last_seen_at
+                   FROM locations WHERE company_id = (SELECT id FROM companies WHERE domain = %s)""",
+                (domain,),
+            ).fetchall()
+
+        assert len(locations) == 1
+        assert locations[0][1] == row[3]
+        assert locations[0][2] >= last_seen
+        assert first_seen is not None
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM sightings WHERE source = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_job_canonical_fields_and_location_kind() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"canonical-test-{suffix}"
+    domain = f"{suffix}.example"
+    stated_batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Canonical Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Canonical Test Company",
+                company_domain=domain,
+                title="Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                location_raw="Whitefield, Bengaluru",
+                lat=12.98,
+                lng=77.60,
+                posted_at_confidence=0.75,
+                technical_classification="software",
+            )
+        ],
+    )
+    coords_only_batch = replace(
+        stated_batch,
+        jobs=[
+            replace(
+                stated_batch.jobs[0],
+                source_job_id=f"coords-{suffix}",
+                canonical_url=f"https://{domain}/jobs/coords-{suffix}",
+                location_raw="",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(stated_batch)
+            persistence.persist(coords_only_batch)
+
+        with psycopg.connect(database_url) as conn:
+            job_row = conn.execute(
+                """SELECT j.state, j.seniority, j.employment_type, j.activity_confidence,
+                          r.slug
+                   FROM technical_job_postings j
+                   LEFT JOIN role_families r ON r.id = j.role_family_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()
+            stated_location = conn.execute(
+                """SELECT jl.location_kind, jl.country_code FROM job_locations jl
+                   JOIN technical_job_postings j ON j.id = jl.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()
+            inferred_location = conn.execute(
+                """SELECT jl.location_kind FROM job_locations jl
+                   JOIN technical_job_postings j ON j.id = jl.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, f"coords-{suffix}"),
+            ).fetchone()
+
+        assert job_row is not None
+        assert (job_row[0], job_row[1], job_row[2], job_row[3], job_row[4]) == (
+            "open",
+            "unknown",
+            "unknown",
+            0.75,
+            "engineering",
+        )
+        assert stated_location == ("stated_job_location", "IN")
+        assert inferred_location is not None and inferred_location[0] == "inferred"
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_inferred_does_not_overwrite_provider() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"coord-conflict-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Coord Conflict Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Coord Conflict Test Company",
+                company_domain=domain,
+                title="Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                location_raw="Whitefield, Bengaluru",
+                lat=12.98,
+                lng=77.60,
+                technical_classification="software",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            persistence.persist(replace(batch, jobs=[replace(batch.jobs[0], lat=None, lng=None)]))
+
+        with psycopg.connect(database_url) as conn:
+            location_row = conn.execute(
+                """SELECT jl.latitude, jl.longitude, jl.coordinate_source FROM job_locations jl
+                   JOIN technical_job_postings j ON j.id = jl.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()
+
+        assert location_row == (12.98, 77.60, "provider")
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_job_coordinate_source_uses_evidence() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"coord-source-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Coord Source Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Coord Source Test Company",
+                company_domain=domain,
+                title="Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                location_raw="Whitefield, Bengaluru",
+                lat=12.98,
+                lng=77.60,
+                coordinate_source="inferred",
+                technical_classification="software",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            location_row = conn.execute(
+                """SELECT jl.latitude, jl.longitude, jl.coordinate_source FROM job_locations jl
+                   JOIN technical_job_postings j ON j.id = jl.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()
+
+        assert location_row == (12.98, 77.60, "inferred")
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_to_nonremote_clears_eligibility() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-to-office-test-{suffix}"
+    domain = f"{suffix}.example"
+
+    def job(work_arrangement: WorkArrangement) -> TechnicalJobEvidence:
+        return TechnicalJobEvidence(
+            company_name="Remote To Office Test Company",
+            company_domain=domain,
+            title="Software Engineer",
+            source_job_id=suffix,
+            canonical_url=f"https://{domain}/jobs/{suffix}",
+            work_arrangement=work_arrangement,
+            remote_scopes=["IN"] if work_arrangement == WorkArrangement.REMOTE else [],
+            technical_classification="software",
+        )
+
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote To Office Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[job(WorkArrangement.REMOTE)],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                remote_count = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s""",
+                    (source, suffix),
+                ).fetchone()[0]
+            assert remote_count == 1
+            persistence.persist(replace(batch, jobs=[job(WorkArrangement.IN_OFFICE)]))
+            with psycopg.connect(database_url) as conn:
+                remaining = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s AND e.is_active""",
+                    (source, suffix),
+                ).fetchone()[0]
+            assert remaining == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_eligibility_scopes_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-eligibility-test-{suffix}"
+    domain = f"{suffix}.example"
+
+    def remote_job(source_job_id: str, scopes: list[str]) -> TechnicalJobEvidence:
+        return TechnicalJobEvidence(
+            company_name="Remote Eligibility Test Company",
+            company_domain=domain,
+            title="Remote Software Engineer",
+            source_job_id=source_job_id,
+            canonical_url=f"https://{domain}/jobs/{source_job_id}",
+            work_arrangement=WorkArrangement.REMOTE,
+            remote_scopes=scopes,
+            technical_classification="software",
+        )
+
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote Eligibility Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            remote_job(f"global-{suffix}", ["GLOBAL"]),
+            remote_job(f"india-{suffix}", ["IN"]),
+            remote_job(f"empty-{suffix}", []),
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                rows = conn.execute(
+                    """SELECT j.source_job_id, e.scope_type, e.scope_code, e.is_active,
+                              e.confidence, e.source_record_id
+                       FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s
+                       ORDER BY j.source_job_id, e.scope_type, e.scope_code""",
+                    (source,),
+                ).fetchall()
+                links = conn.execute(
+                    """SELECT j.source_job_id, jsl.source_record_id
+                       FROM job_source_links jsl
+                       JOIN technical_job_postings j ON j.id = jsl.job_id
+                       WHERE j.source = %s""",
+                    (source,),
+                ).fetchall()
+            link_by_job = dict(links)
+            global_rows = [row for row in rows if row[0] == f"global-{suffix}"]
+            india_rows = [row for row in rows if row[0] == f"india-{suffix}"]
+            assert [row[:5] for row in global_rows] == [
+                (f"global-{suffix}", "global", "GLOBAL", True, 0.8)
+            ]
+            assert [row[:5] for row in india_rows] == [
+                (f"india-{suffix}", "country", "IN", True, 0.8)
+            ]
+            assert [row for row in rows if row[0] == f"empty-{suffix}"] == []
+            assert all(
+                row[5] is not None and row[5] == link_by_job[row[0]]
+                for row in global_rows + india_rows
+            )
+
+            persistence.persist(
+                replace(batch, jobs=[replace(batch.jobs[0], remote_scopes=[])])
+            )
+            with psycopg.connect(database_url) as conn:
+                remaining = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s""",
+                    (source, f"global-{suffix}"),
+                ).fetchone()[0]
+            assert remaining == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_without_scope_not_india_eligible() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-noscope-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote NoScope Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Remote NoScope Test Company",
+                company_domain=domain,
+                title="Remote Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                work_arrangement=WorkArrangement.REMOTE,
+                technical_classification="software",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            eligibility_count = conn.execute(
+                """SELECT count(*) FROM job_remote_eligibility e
+                   JOIN technical_job_postings j ON j.id = e.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()[0]
+            active_india = conn.execute(
+                """SELECT count(*) FROM job_remote_eligibility e
+                   JOIN technical_job_postings j ON j.id = e.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s
+                     AND e.is_active
+                     AND (e.scope_type = 'global'
+                          OR (e.scope_type = 'country' AND e.scope_code = 'IN'))""",
+                (source, suffix),
+            ).fetchone()[0]
+
+        assert eligibility_count == 0
+        assert active_india == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
 
 
 def test_persistence_rejects_invalid_coordinates_before_connecting() -> None:

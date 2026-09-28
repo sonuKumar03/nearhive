@@ -167,6 +167,7 @@ class TestLocationResolver:
         resolved = await resolve_job_location(job, resolver)
         assert resolved.lat == 12.9716
         assert resolved.lng == 77.5946
+        assert resolved.coordinate_source == "inferred"
         assert resolved.metadata.get("location_resolution") == "geocoded"
         assert resolved.metadata.get("location_provider") == "nominatim"
 

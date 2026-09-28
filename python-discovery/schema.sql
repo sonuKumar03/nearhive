@@ -176,6 +176,103 @@ CREATE INDEX job_locations_coords ON job_locations USING gist (
     (ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography)
 ) WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL;
 
+CREATE TABLE data_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    source_type VARCHAR(50) NOT NULL CHECK (source_type IN
+        ('official_site', 'official_ats', 'open_dataset', 'licensed_import', 'company_submitted', 'user_submitted')),
+    source_family VARCHAR(100) NOT NULL,
+    trust_tier SMALLINT NOT NULL DEFAULT 3 CHECK (trust_tier BETWEEN 1 AND 5),
+    license_name VARCHAR(255),
+    terms_url TEXT,
+    refresh_interval_seconds INTEGER,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX data_sources_type ON data_sources (source_type, enabled);
+
+CREATE TABLE ingestion_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    data_source_id UUID NOT NULL REFERENCES data_sources(id),
+    discovery_job_id UUID REFERENCES discovery_jobs(id) ON DELETE SET NULL,
+    adapter_version VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running', 'completed', 'partial', 'failed')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    accepted_count INTEGER NOT NULL DEFAULT 0,
+    rejected_count INTEGER NOT NULL DEFAULT 0,
+    cursor_state JSONB NOT NULL DEFAULT '{}',
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ingestion_runs_source ON ingestion_runs (data_source_id, started_at DESC);
+CREATE INDEX ingestion_runs_status ON ingestion_runs (status, started_at);
+CREATE INDEX ingestion_runs_discovery_job ON ingestion_runs (discovery_job_id);
+
+CREATE TABLE source_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    data_source_id UUID NOT NULL REFERENCES data_sources(id),
+    ingestion_run_id UUID REFERENCES ingestion_runs(id) ON DELETE SET NULL,
+    record_type VARCHAR(30) NOT NULL CHECK (record_type IN
+        ('company', 'location', 'job', 'review', 'compensation', 'interview', 'question')),
+    external_id VARCHAR(500),
+    source_url TEXT,
+    normalized_payload JSONB NOT NULL DEFAULT '{}',
+    normalized_payload_hash VARCHAR(64) NOT NULL,
+    source_updated_at TIMESTAMPTZ,
+    source_deleted_at TIMESTAMPTZ,
+    validation_state VARCHAR(20) NOT NULL DEFAULT 'valid'
+        CHECK (validation_state IN ('valid', 'invalid', 'pending')),
+    validation_errors TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (external_id IS NOT NULL OR normalized_payload_hash IS NOT NULL)
+);
+CREATE UNIQUE INDEX source_records_external
+    ON source_records (data_source_id, record_type, external_id) WHERE external_id IS NOT NULL;
+CREATE UNIQUE INDEX source_records_hash
+    ON source_records (data_source_id, record_type, normalized_payload_hash) WHERE external_id IS NULL;
+CREATE INDEX source_records_seen ON source_records (data_source_id, record_type, last_seen_at DESC);
+
+CREATE TABLE company_source_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    source_record_id UUID NOT NULL REFERENCES source_records(id) ON DELETE CASCADE,
+    relation VARCHAR(50) NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_id, source_record_id)
+);
+
+CREATE TABLE location_source_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    source_record_id UUID NOT NULL REFERENCES source_records(id) ON DELETE CASCADE,
+    relation VARCHAR(50) NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (location_id, source_record_id)
+);
+
+CREATE TABLE job_source_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES technical_job_postings(id) ON DELETE CASCADE,
+    source_record_id UUID NOT NULL REFERENCES source_records(id) ON DELETE CASCADE,
+    relation VARCHAR(50) NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (job_id, source_record_id)
+);
+
 -- The Go HTTP API can read discovery data and manage shared user accounts.
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nearhive_api') THEN

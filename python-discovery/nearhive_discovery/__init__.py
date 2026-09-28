@@ -29,6 +29,7 @@ from nearhive_discovery.queue import (
     finish_job,
     heartbeat,
     is_cancelled,
+    reap_exhausted_jobs,
     record_source_run,
 )
 from nearhive_discovery.settings import Settings, settings
@@ -62,6 +63,7 @@ __all__ = [
     "heartbeat",
     "is_cancelled",
     "publication_state",
+    "reap_exhausted_jobs",
     "record_source_run",
     "settings",
 ]

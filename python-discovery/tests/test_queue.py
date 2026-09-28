@@ -321,3 +321,59 @@ def test_finish_job_clears_error_on_completed(db_connections, test_user_id):
         row = cur.fetchone()
         assert row[0] == "completed"
         assert row[1] is None
+
+
+def test_reap_exhausted_expired_jobs_marks_failed(db_connections, test_user_id):
+    conn1, conn2 = db_connections
+    exhausted_id = uuid.uuid4()
+    reclaimable_id = uuid.uuid4()
+
+    with conn1.cursor() as cur:
+        # Exhausted: expired lease and attempts == max_attempts
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (
+                id, user_id, status, lat, lng, radius_km, worker_id,
+                lease_expires_at, last_heartbeat_at, attempts, max_attempts
+            ) VALUES (
+                %s, %s, 'running', 37.7749, -122.4194, 10.0, 'dead-worker',
+                NOW() - INTERVAL '10 seconds', NOW() - INTERVAL '30 seconds', 3, 3
+            )
+            """,
+            (exhausted_id, test_user_id),
+        )
+        # Reclaimable: expired lease but attempts remaining
+        cur.execute(
+            """
+            INSERT INTO discovery_jobs (
+                id, user_id, status, lat, lng, radius_km, worker_id,
+                lease_expires_at, last_heartbeat_at, attempts, max_attempts
+            ) VALUES (
+                %s, %s, 'running', 37.7749, -122.4194, 10.0, 'dead-worker',
+                NOW() - INTERVAL '10 seconds', NOW() - INTERVAL '30 seconds', 1, 3
+            )
+            """,
+            (reclaimable_id, test_user_id),
+        )
+
+    from nearhive_discovery.queue import reap_exhausted_jobs
+
+    assert reap_exhausted_jobs(conn2) == 1
+
+    with conn1.cursor() as cur:
+        cur.execute(
+            "SELECT status, error, finished_at FROM discovery_jobs WHERE id = %s",
+            (exhausted_id,),
+        )
+        row = cur.fetchone()
+        assert row[0] == "failed"
+        assert row[1] is not None
+        assert row[2] is not None
+
+        cur.execute("SELECT status FROM discovery_jobs WHERE id = %s", (reclaimable_id,))
+        assert cur.fetchone()[0] == "running"
+
+    # The reclaimable job can still be picked up and is not reaped.
+    claimed = claim_job(conn2, worker_id="worker-2", lease_seconds=60)
+    assert claimed is not None
+    assert str(claimed.id) == str(reclaimable_id)

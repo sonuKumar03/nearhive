@@ -74,7 +74,7 @@ test: ## Run unit and package tests
 	go test -v ./...
 
 test-discovery: ## Run focused Python discovery checks
-	cd python-discovery && NEARHIVE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nearhive_test uv run pytest -q tests/test_persistence.py tests/test_operations_api.py
+	cd python-discovery && NEARHIVE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nearhive_test DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nearhive_test uv run pytest -q tests/test_persistence.py tests/test_operations_api.py tests/test_queue.py
 
 local-run: ## Build and run locally with native Go
 	go build -o bin/nearhive ./cmd/nearhive

@@ -27,6 +27,7 @@ from nearhive_discovery.queue import (
     finish_job,
     heartbeat,
     is_cancelled,
+    reap_exhausted_jobs,
     record_source_run,
 )
 from nearhive_discovery.settings import settings
@@ -97,6 +98,9 @@ class Worker:
             True if a job was claimed and processed, False otherwise.
         """
         with psycopg.connect(self.db_url, autocommit=True) as conn:
+            reaped = reap_exhausted_jobs(conn)
+            if reaped:
+                logger.warning("Marked %d job(s) failed after exhausted leases", reaped)
             job = claim_job(conn, self.worker_id, self.lease_seconds)
             if not job:
                 return False

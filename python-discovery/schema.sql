@@ -273,6 +273,152 @@ CREATE TABLE job_source_links (
     UNIQUE (job_id, source_record_id)
 );
 
+-- (a) entity extensions: companies and locations
+
+ALTER TABLE companies
+    ADD COLUMN IF NOT EXISTS legal_name VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'acquired', 'merged', 'closed', 'unknown')),
+    ADD COLUMN IF NOT EXISTS identity_confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (identity_confidence BETWEEN 0 AND 1),
+    ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS merged_into_company_id UUID REFERENCES companies(id),
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE locations
+    ADD COLUMN IF NOT EXISTS location_type VARCHAR(30) NOT NULL DEFAULT 'unknown'
+        CHECK (location_type IN ('headquarters', 'office', 'coworking', 'registered', 'job_only', 'unknown')),
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'unverified'
+        CHECK (status IN ('active', 'inactive', 'unverified')),
+    ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NOT NULL DEFAULT 'IN',
+    ADD COLUMN IF NOT EXISTS timezone_name VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS address_hash VARCHAR(64);
+CREATE INDEX IF NOT EXISTS locations_company_status ON locations (company_id, status);
+CREATE INDEX IF NOT EXISTS locations_country_city ON locations (country_code, city);
+
+-- (b) taxonomy and identity tables
+
+CREATE TABLE IF NOT EXISTS role_families (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(50) NOT NULL UNIQUE,
+    parent_family_id UUID REFERENCES role_families(id),
+    display_name VARCHAR(100) NOT NULL,
+    is_technical BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO role_families (slug, display_name, is_technical) VALUES
+    ('engineering', 'Engineering', true),
+    ('data', 'Data', true),
+    ('product', 'Product', true),
+    ('design', 'Design', true),
+    ('security', 'Security', true),
+    ('it', 'IT', true),
+    ('sales', 'Sales', false),
+    ('marketing', 'Marketing', false),
+    ('operations', 'Operations', false),
+    ('finance', 'Finance', false),
+    ('hr', 'HR', false),
+    ('legal', 'Legal', false),
+    ('customer_support', 'Customer Support', false),
+    ('other', 'Other', false)
+ON CONFLICT (slug) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS company_aliases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    alias VARCHAR(500) NOT NULL,
+    normalized_alias VARCHAR(500) NOT NULL,
+    alias_type VARCHAR(30) NOT NULL CHECK (alias_type IN ('brand', 'former_name', 'legal_name', 'source_name')),
+    country_code VARCHAR(2),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_id, normalized_alias, alias_type)
+);
+
+CREATE TABLE IF NOT EXISTS company_domains (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    normalized_domain VARCHAR(255) NOT NULL,
+    domain_type VARCHAR(30) NOT NULL DEFAULT 'primary' CHECK (domain_type IN ('primary', 'secondary', 'legacy')),
+    is_primary BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    verified_at TIMESTAMPTZ,
+    verification_method VARCHAR(50),
+    source_record_id UUID,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_id, normalized_domain)
+);
+CREATE UNIQUE INDEX company_domains_one_primary
+    ON company_domains (company_id) WHERE is_primary AND is_active;
+
+CREATE TABLE IF NOT EXISTS skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(200) NOT NULL,
+    category VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS skill_aliases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    alias VARCHAR(200) NOT NULL,
+    UNIQUE (skill_id, alias)
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES technical_job_postings(id) ON DELETE CASCADE,
+    skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    source_record_id UUID,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+    UNIQUE (job_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS job_remote_eligibility (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES technical_job_postings(id) ON DELETE CASCADE,
+    scope_type VARCHAR(20) NOT NULL CHECK (scope_type IN ('global', 'country', 'region', 'timezone')),
+    scope_code VARCHAR(100) NOT NULL,
+    source_record_id UUID,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (job_id, scope_type, scope_code)
+);
+CREATE INDEX job_remote_eligibility_scope ON job_remote_eligibility (scope_type, scope_code, is_active);
+CREATE INDEX job_remote_eligibility_job ON job_remote_eligibility (job_id, is_active);
+
+-- (c) entity extensions: jobs and job_locations
+
+ALTER TABLE technical_job_postings
+    ADD COLUMN IF NOT EXISTS role_family_id UUID REFERENCES role_families(id),
+    ADD COLUMN IF NOT EXISTS seniority VARCHAR(20) NOT NULL DEFAULT 'unknown'
+        CHECK (seniority IN ('intern', 'entry', 'mid', 'senior', 'lead', 'manager', 'director', 'executive', 'unknown')),
+    ADD COLUMN IF NOT EXISTS employment_type VARCHAR(20) NOT NULL DEFAULT 'unknown'
+        CHECK (employment_type IN ('full_time', 'part_time', 'contract', 'internship', 'temporary', 'unknown')),
+    ADD COLUMN IF NOT EXISTS state VARCHAR(20) NOT NULL DEFAULT 'open'
+        CHECK (state IN ('open', 'closed', 'stale', 'unknown')),
+    ADD COLUMN IF NOT EXISTS activity_confidence DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (activity_confidence BETWEEN 0 AND 1);
+CREATE INDEX IF NOT EXISTS jobs_state_seen ON technical_job_postings (company_id, state, last_seen_at DESC);
+
+ALTER TABLE job_locations
+    ADD COLUMN IF NOT EXISTS location_kind VARCHAR(30) NOT NULL DEFAULT 'unknown'
+        CHECK (location_kind IN ('office', 'stated_job_location', 'inferred', 'unknown')),
+    ADD COLUMN IF NOT EXISTS company_location_id UUID REFERENCES locations(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS city TEXT,
+    ADD COLUMN IF NOT EXISTS state_province TEXT,
+    ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NOT NULL DEFAULT 'IN',
+    ADD COLUMN IF NOT EXISTS postal_code TEXT;
+
 -- The Go HTTP API can read discovery data and manage shared user accounts.
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nearhive_api') THEN

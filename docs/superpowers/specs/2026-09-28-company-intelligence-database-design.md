@@ -1,11 +1,12 @@
 # NearHive Company Intelligence Database Design
 
 > 🟡 **DRAFT / FORWARD-LOOKING — reconciled 2026-09-28.** This umbrella spec is not yet
-> an implementation plan. Ownership has since settled: ingestion is Python-only and Go
-> has read-only access to discovery tables, so the "internal worker token" ingestion
-> path referenced below is retired. Validate ownership assumptions against the
+> an implementation plan. Ownership has settled: ingestion is Python-only and Go
+> has read-only access to discovery tables (Go writes only `users`). The "internal
+> worker token" ingestion path referenced in §12 is retired — the Python operations
+> API authenticates user JWTs only. The body has been audited against the landed
 > [Python-Owned Discovery and Go Read API Plan](../plans/2026-09-28-python-owned-discovery-architecture.md)
-> before turning this into a plan.
+> implementation (master, PR #28); §3.2, §6.6, §6.11, and §12 were corrected accordingly.
 
 **Status:** Draft for review  
 **Date:** 2026-09-28  
@@ -44,26 +45,27 @@ The primary delivery remains nearby company and hiring discovery. Community inte
 |---|---|---|
 | Company identity | `companies` | Extend with aliases and multiple domains |
 | Spatial offices | `locations` with PostGIS geography and GiST | Retain physical table; extend semantics and observation dates |
-| Jobs | `technical_job_postings` | Generalize to canonical job postings before non-technical ingestion |
+| Jobs | `technical_job_postings` with multi-row `job_locations` | Generalize to canonical job postings before non-technical ingestion |
 | Evidence | `sightings`, discovery source fields, first/last seen | Migrate toward registered sources and durable source records |
 | Discovery operations | `discovery_jobs`, `discovery_source_runs` | Retain as operational run history |
 | Users | Email/password/JWT users | Extend lifecycle; remove shared-guest identity before personal data |
-| Nearby search | `ST_DWithin` over office locations | Retain and add job-location and blended candidate queries |
+| Nearby search | `ST_DWithin` over office locations (companies) and `job_locations` (jobs, at `GET /api/v1/search/jobs`) | Retain and add blended local+remote candidate queries with cursor pagination |
 | Text search | pg_trgm company indexes | Retain and extend to normalized job titles |
 | Work arrangement | `in_office`, `hybrid`, `remote`, `unknown` | Retain |
 | Job freshness | publication state, posted/seen timestamps | Separate active, recently posted, closed, and stale rules |
 
-### 3.2 Gaps
+### 3.2 Gaps (audited 2026-09-28 against master)
 
-- A job supports only one optional location and one coordinate pair; real jobs may list several locations.
-- Remote eligibility has no country, region, or time-zone representation.
-- The physical table name and model assume every future job is technical.
+- Remote eligibility has no country, region, or time-zone representation (only `work_arrangement` exists).
+- The physical table name and model assume every future job is technical (`technical_job_postings`).
 - Source names are strings rather than registered source identities with terms, trust, and refresh policy.
 - Canonical field selection cannot be reproduced consistently when sources conflict.
-- Nearby search attaches company-wide job counts, not job locality.
+- Company nearby search attaches company-wide job counts, not job locality. (A job-locality search exists at `GET /api/v1/search/jobs` via `ST_DWithin` over `job_locations`, but there is no blended local+remote candidate query, role-family filter, or cursor pagination.)
 - No saved/dismissed state, contributor identity model, moderation queue, or audit trail exists.
 - No review, compensation, interview, question, or privacy-safe aggregate schema exists.
-- The frontend auto-uses one shared guest account, which cannot safely own personal preferences or community content.
+- The frontend auto-uses one shared guest account (`guest@nearhive.com`, auto-logged in by `web/src/hooks/useAuth.ts`), which cannot safely own personal preferences or community content.
+
+Closed since the draft was written: multi-row `job_locations` now exists with ordinal, coordinates, and a GiST index, so the earlier "one location per job" gap is resolved at the storage level; §6.6's remaining work is enriching it with structured address fields, provenance, and lifecycle columns.
 
 ## 4. Architectural Model
 
@@ -134,7 +136,7 @@ Indexes: unique `slug`; `(source_type, enabled)`.
 
 One execution of a source adapter or import.
 
-Required fields: source, discovery job when applicable, adapter/rule version, status, start/end, accepted/rejected counts, cursor/checkpoint, and bounded error summary. Existing `discovery_source_runs` remains the user-visible discovery execution record and may reference `ingestion_runs` rather than being replaced.
+Required fields: source, discovery job when applicable, adapter/rule version, status, start/end, accepted/rejected counts, cursor/checkpoint, and bounded error summary. Existing `discovery_source_runs` remains the user-visible discovery execution record and may reference `ingestion_runs` rather than being replaced. All ingestion runs are initiated by the Python worker.
 
 Indexes: `(source_id, started_at DESC)`, `(status, started_at)`, optional `discovery_job_id`.
 
@@ -285,7 +287,7 @@ Location kind: `office`, `stated_job_location`, `inferred`, `unknown`. Inferred 
 
 Indexes: GiST on coordinates where active; `(job_id, active)`; `(country_code, city)`.
 
-The existing `location_id`, `lat`, `lng`, and `location_raw` columns remain readable during backfill. New writes dual-write briefly, readers switch to `job_locations`, and legacy columns are removed only in a later cleanup migration.
+The `job_locations` table already exists with `ordinal`, raw location text, coordinates, `coordinate_source`, confidence, and lifecycle flags; this phase extends it with structured address fields (city, state, country code, postal code), source-record provenance, and a location `location_kind`. No dual-write from legacy job columns is needed — the current schema has no per-job location columns outside `job_locations`.
 
 ### 6.7 Remote eligibility
 
@@ -325,15 +327,14 @@ Hiring projections count confirmed open jobs. When a source cannot expose open/c
 ### 6.11 Phase 1 migration and rollout
 
 1. Add source registry, runs, records, and link tables.
-2. Register current OSM, directory, official-site, JSON-LD, Greenhouse, and Lever sources.
+2. Register currently active sources: OSM and Greenhouse are configured in `config/python_sources.yaml`; Lever is implemented but unconfigured; the company-site crawl and JSON-LD extraction are pipeline enrichment stages that register as sources when they produce evidence.
 3. Backfill source records and links from current source strings, sightings, and technical jobs.
 4. Add company alias/domain and location lifecycle fields.
 5. Add taxonomies and general job fields.
-6. Add job locations and remote eligibility.
-7. Dual-write old and new job location representations.
-8. Backfill and compare old versus new read results.
-9. Switch canonical readers to the new relationships.
-10. Remove legacy columns only in a later cleanup after rollback windows expire.
+6. Extend `job_locations` and add remote eligibility.
+7. Backfill and compare old versus new read results.
+8. Switch canonical readers to the new relationships.
+9. Remove legacy columns only in a later cleanup after rollback windows expire.
 
 ### 6.12 Phase 1 acceptance
 
@@ -682,7 +683,7 @@ No initial time partitioning is required. Add partitioning only after measured v
 
 ## 12. Security and Access Boundaries
 
-- Worker ingestion uses the existing internal token initially; production should support rotation and narrowly scoped credentials.
+- Ingestion is Python-only. The Python operations API and worker authenticate with user JWTs signed by the shared `JWT_SECRET`; there is no separate worker token. Production should support secret rotation and narrowly scoped credentials.
 - User-owned writes derive `user_id` from authentication, never request bodies.
 - Moderation and company-verified submissions require explicit roles, introduced before Phase 3/4 endpoints.
 - Public/company APIs select explicit columns and never serialize internal user IDs, moderation notes, raw payloads, or source credentials.

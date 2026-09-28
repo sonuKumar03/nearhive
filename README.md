@@ -1,208 +1,30 @@
-# NearHive 🐝
+# NearHive
 
-> High-performance, modular tech company discovery and verification engine built in Go.
+NearHive discovers nearby tech companies and recent technical jobs. Python owns discovery, its PostgreSQL schema, and all scraped-data writes. Go serves authentication and read APIs. The Next.js web app uses both APIs through same-origin rewrites.
 
-NearHive scrapes multiple independent sources (OpenStreetMap, Tech Park directories, Google Places, JustDial), normalizes corporate names, cross-verifies office locations, and provides spatial radius queries with sub-millisecond PostGIS accuracy.
+## Local setup
 
-## Features
-
-- 📍 **Multi-Source Scraping**: Scrapes OSM Overpass API, config-driven tech park portals, JustDial, and Google Places.
-- 🔍 **Verification & Deduplication**: 3-stage pipeline (name normalization, fuzzy/domain matching, and spatial clustering).
-- 🧭 **High-Performance Spatial Search**: Powered by PostgreSQL + PostGIS `ST_DWithin` spatial indices.
-- 🔐 **Secure & Private**: JWT authentication, bcrypt passwords, and user-scoped private search queries.
-- 📦 **Minimal Footprint**: Single binary, compiles to ~15MB Docker image, fits easily in Railway or Heroku hobby tier.
-
-## Live Deployment
-
-- **Base URL**: `https://nearhive-production.up.railway.app`
-- **Health Check**: `GET https://nearhive-production.up.railway.app/health`
-
-## Quick Start (Local Development)
-
-The easiest way to run NearHive locally is via Docker and Make — no Go or PostgreSQL installation required:
-
-```bash
-# 1. Start full app (React Web + Go Backend API + PostGIS DB + Discovery Worker) in background
+```sh
 make up
+make ps
+```
 
-# 2. View live logs
-make logs           # All services
-make logs-web       # Next.js React frontend
-make logs-app       # Go NearHive application
-make logs-discovery # Python company discovery worker
-make logs-crawler   # Go crawler daemon
+The web app runs at `http://localhost:3000`, Go at `http://localhost:8080`, Python discovery at `http://localhost:8090`, and PostGIS at `localhost:5432`. On a new volume, Compose initializes the database from [`python-discovery/schema.sql`](python-discovery/schema.sql). Go uses a database role with read access to discovery tables and write access to `users`; Python uses the writer connection.
 
-# 3. Run tests
-make test           # Go unit and integration tests
-make test-discovery # Python discovery worker end-to-end suite
+To reset disposable local data and reinitialize the Python schema:
 
-# 4. Stop containers when done
-make down
-
-# 5. Stop and wipe database volume for a clean slate
+```sh
 make clean
+make up
 ```
 
-The stack will be available at:
-- **React Frontend**: [http://localhost:3000](http://localhost:3000)
-- **Go Backend API**: [http://localhost:8080](http://localhost:8080)
-- **Health Check**: [http://localhost:8080/health](http://localhost:8080/health)
-- **PostGIS Database**: `localhost:5432` (`postgres:postgres`)
+## API ownership
 
-### Manual Native Setup (Without Docker)
+| Service | Routes | Responsibility |
+| --- | --- | --- |
+| Go | `/api/v1/auth/*`, `/api/v1/search*`, `/api/v1/companies/*` | Accounts and reads |
+| Python | `/api/v1/discovery/jobs*` | Create, list, inspect, and cancel discovery runs |
 
-1. Ensure Go 1.23+, Python 3.12+, `uv`, and PostgreSQL with PostGIS are installed.
-2. Copy configuration:
-```bash
-cp .env.example .env
-```
-3. Run backend natively:
-```bash
-make local-run
-```
-4. Run discovery worker natively:
-```bash
-cd python-discovery
-uv run nearhive-discovery
-```
+Discovery jobs accept `lat`, `lng`, and `radius_km`. Their client status is `queued`, `in_progress`, `completed`, `failed`, or `cancelled`. The Python worker claims runs from PostgreSQL, gathers company and job evidence, and writes the canonical tables directly. Company offices and job locations are distinct, so job evidence does not imply a nearby office.
 
-## Python Company Discovery Worker
-
-NearHive features a dedicated Python discovery stack (`python-discovery/`) running alongside the Go core API.
-
-### Difference Between Legacy Go Crawler and Python Discovery Worker
-
-- **Legacy Go Crawler (`cmd/crawler`)**: Scheduled, periodic batch scraping daemon. Crawls broad geospatial regions via OpenStreetMap (OSM Overpass), JustDial, and configured tech parks (`config/techparks.yaml`).
-- **Python Discovery Worker (`nearhive_discovery`)**: Reactive, on-demand queue processor. Listens to `discovery_jobs` claimed via PostgreSQL row-level locks, crawls target company websites, extracts Schema.org JSON-LD microdata, fetches public ATS job postings (Greenhouse, Lever), executes client-side JavaScript via headless Playwright, and streams canonical evidence batches back to the Go API (`POST /api/v1/internal/discovery/batches`).
-
-### Configuration
-
-The Python discovery worker is configured via environment variables and YAML:
-- `DATABASE_URL`: PostgreSQL connection string with PostGIS support.
-- `NEARHIVE_API_URL`: Go API base URL (e.g. `http://app:8080` in Docker, `http://localhost:8080` locally).
-- `DISCOVERY_WORKER_TOKEN` / `NEARHIVE_WORKER_TOKEN`: Shared secret token for authenticating batch ingestion.
-- `PLAYWRIGHT_CONTEXTS`: Concurrency limit for headless browser contexts (default `2`).
-- `config/python_sources.yaml`: Declarative CSS/XPath selector definitions for public directories.
-
-### Adding a Compliant Adapter
-
-Custom discovery adapters implement the `BaseSourceAdapter` protocol:
-
-```python
-from collections.abc import Iterable
-from nearhive_discovery.contracts import DiscoveryJob, EvidenceBatch, CompanyEvidence
-from nearhive_discovery.http import validate_public_url
-from nearhive_discovery.sources.base import BaseSourceAdapter
-
-class CustomDirectoryAdapter(BaseSourceAdapter):
-    name = "custom_directory"
-    source_family = "public_directory"  # canonical family for presence evaluation
-
-    def run(self, job: DiscoveryJob) -> Iterable[EvidenceBatch]:
-        # 1. Enforce strict SSRF protection before any HTTP fetch
-        normalized = validate_public_url("https://example.com/directory")
-        
-        # 2. Extract and emit canonical evidence batches
-        yield EvidenceBatch(
-            contract_version=1,
-            discovery_job_id=str(job.id),
-            source=self.name,
-            source_family=self.source_family,
-            companies=[CompanyEvidence(name="Acme Tech", domain="acme.example.com")],
-            jobs=[],
-        )
-```
-
-Compliance requirements:
-- **SSRF Defense**: All external URLs must be validated with `validate_public_url()`.
-- **Bounded Resource Ceilings**: Strict pagination limits, max crawl depths, and request timeouts.
-- **Canonical Ingestion**: Evidence must use canonical contracts (`CompanyEvidence`, `TechnicalJobEvidence`).
-
-### Source Fixtures & Offline Testing
-
-To protect third-party services and guarantee deterministic CI execution:
-- Static HTML/JSON fixtures are stored in `python-discovery/tests/fixtures/`.
-- Local fake servers (`python-discovery/tests/fake_site/`) provide in-memory HTTP endpoints for HTML, JSON-LD, ATS, and Playwright SPA rendering during tests.
-- Local and CI test suites run with zero live network calls.
-
-## CLI Usage
-
-```bash
-# Start API server and background scheduler
-./nearhive serve
-
-# Execute a one-off scrape for a region
-./nearhive scrape --region=Bangalore --radius=20
-
-# Create an initial user account
-./nearhive user create --email=admin@nearhive.com --password=SecretPassword123!
-```
-
-## API Overview
-
-- `POST /api/v1/auth/register` — Register a new account
-- `POST /api/v1/auth/login` — Login and receive JWT token
-- `POST /api/v1/discovery/jobs` — Create a reactive company discovery scan job
-- `GET /api/v1/discovery/jobs/:id` — Retrieve discovery job progress and statistics
-- `POST /api/v1/discovery/jobs/:id/cancel` — Cancel an in-progress discovery job
-- `POST /api/v1/internal/discovery/batches` — Worker evidence batch ingestion endpoint
-- `GET /api/v1/search?lat=12.9716&lng=77.5946&radius=15` — Find companies within radius (km) with presence types
-- `GET /api/v1/search/jobs?lat=12.9716&lng=77.5946&radius=15` — Find nearby active technical jobs within radius (km)
-- `GET /api/v1/companies/:id` — Detailed company profile & verified branch locations
-- `GET /api/v1/companies/:id/sightings` — Raw scrape sightings audit trail
-- `GET /api/v1/companies/:id/technical-jobs` — Active and recent technical job postings
-- `POST /api/v1/jobs/trigger` — Trigger scraping job for a region
-- `GET /health` — Health check endpoint
-
-## Deployment
-
-### Go Backend API (Railway)
-
-1. Connect your repository to Railway.
-2. Add the **PostgreSQL** service in Railway (PostGIS is enabled automatically by migrations).
-3. Set environment variables on the Go service:
-   - `PORT`: `8080`
-   - `JWT_SECRET`: 32+ character random secret
-   - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}`
-   - `DISCOVERY_WORKER_TOKEN`: random worker secret token
-4. Deploy using the root `Dockerfile` and `railway.toml`.
-
-### Python Discovery Worker (Railway or Render)
-
-The discovery worker runs as a separate background daemon that claims jobs from PostgreSQL and submits batches to the Go API.
-
-#### Option A: Railway (Co-located with Go API)
-1. In your existing Railway project, click **New** -> **GitHub Repo** (select this repository).
-2. Under **Settings** -> **Build**:
-   - Set **DockerfilePath** to `python-discovery/Dockerfile`.
-   - Set **Root Directory** to `python-discovery` (or leave root with build context configured).
-3. Under **Variables**, add:
-   - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}` (same DB as Go service)
-   - `NEARHIVE_API_URL`: `http://${{nearhive-app.RAILWAY_PRIVATE_DOMAIN}}:8080` (or public URL)
-   - `NEARHIVE_WORKER_TOKEN`: `${{nearhive-app.DISCOVERY_WORKER_TOKEN}}`
-   - `NEARHIVE_MAX_COMPANY_SITES`: `50`
-   - `NEARHIVE_MAX_JOB_GEOCODES`: `50`
-   - `NEARHIVE_GEOCODER_URL`: `https://nominatim.openstreetmap.org/search`
-   - `NEARHIVE_GEOCODER_PROVIDER`: `nominatim`
-4. Set replica count to **1**. Scale horizontally only after lease queue monitoring justifies it.
-
-#### Option B: Render (Background Worker)
-1. In the Render Dashboard, create a **New** -> **Background Worker**.
-2. Connect your Git repository.
-3. Configure the service:
-   - **Environment**: Docker
-   - **Docker Context**: `python-discovery`
-   - **Dockerfile Path**: `Dockerfile`
-4. Under **Environment Variables**, set:
-   - `DATABASE_URL`: connection string from your PostgreSQL database (with PostGIS enabled)
-   - `NEARHIVE_API_URL`: public URL of your Go NearHive API (e.g. `https://nearhive-production.up.railway.app`)
-   - `NEARHIVE_WORKER_TOKEN`: matching `DISCOVERY_WORKER_TOKEN` configured on the Go API
-   - `NEARHIVE_MAX_COMPANY_SITES`: `50`
-   - `NEARHIVE_MAX_JOB_GEOCODES`: `50`
-   - `NEARHIVE_GEOCODER_URL`: `https://nominatim.openstreetmap.org/search`
-   - `NEARHIVE_GEOCODER_PROVIDER`: `nominatim`
-5. Deploy the worker. It will automatically claim pending discovery jobs.
-
-## License
-
-MIT
+The Go crawler, scrape command, scheduled crawl, scrape routes, and batch ingestion endpoint are retired. Configure Python sources in [`config/python_sources.yaml`](config/python_sources.yaml). See [`python-discovery/README.md`](python-discovery/README.md) for worker development and the isolated test database.

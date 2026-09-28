@@ -11,6 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - nearhive_pgdata:/var/lib/postgresql/data
+      - ./python-discovery/schema.sql:/docker-entrypoint-initdb.d/01-nearhive.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d nearhive"]
       interval: 4s
@@ -30,12 +31,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
+      DATABASE_URL: postgres://nearhive_api:nearhive-api-dev@db:5432/nearhive?sslmode=disable
       PORT: 8080
       JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
-      ENVIRONMENT: development
       ALLOWED_ORIGINS: "*"
-      DISCOVERY_WORKER_TOKEN: dev-worker-token
       LOG_LEVEL: info
     restart: unless-stopped
 
@@ -47,13 +46,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      app:
-        condition: service_started
+    ports:
+      - "8090:8090"
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/nearhive?sslmode=disable
-      NEARHIVE_API_URL: http://app:8080
-      NEARHIVE_WORKER_TOKEN: dev-worker-token
-      DISCOVERY_WORKER_TOKEN: dev-worker-token
+      JWT_SECRET: nearhive-dev-local-secret-32-chars-min!
+      NEARHIVE_ALLOWED_ORIGIN: http://localhost:3000
       NEARHIVE_MAX_COMPANY_SITES: 50
       NEARHIVE_MAX_JOB_GEOCODES: 50
       NEARHIVE_GEOCODER_URL: https://nominatim.openstreetmap.org/search
@@ -77,6 +75,7 @@ services:
     environment:
       NODE_ENV: development
       API_URL: http://app:8080
+      DISCOVERY_API_URL: http://python-discovery:8090
       WATCHPACK_POLLING: "true"
     volumes:
       - ./web:/app

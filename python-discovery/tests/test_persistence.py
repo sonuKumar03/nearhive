@@ -221,6 +221,71 @@ def test_provenance_rows_written_and_idempotent() -> None:
             conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
 
 
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_company_alias_and_domain_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"identity-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Identity Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            company_id = conn.execute(
+                "SELECT id FROM companies WHERE domain = %s", (domain,)
+            ).fetchone()[0]
+            aliases = conn.execute(
+                """SELECT alias, normalized_alias, alias_type FROM company_aliases
+                   WHERE company_id = %s AND alias_type = 'source_name'""",
+                (company_id,),
+            ).fetchall()
+            domains = conn.execute(
+                """SELECT normalized_domain, domain_type, is_primary, is_active
+                   FROM company_domains WHERE company_id = %s""",
+                (company_id,),
+            ).fetchall()
+
+        assert aliases == [("Identity Test Company", "identity test company", "source_name")]
+        assert domains == [(domain, "primary", True, True)]
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM sightings WHERE source = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
 def test_persistence_rejects_invalid_coordinates_before_connecting() -> None:
     batch = EvidenceBatch(
         contract_version=1,

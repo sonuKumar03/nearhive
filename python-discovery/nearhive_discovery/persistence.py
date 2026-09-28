@@ -198,18 +198,33 @@ class PostgresPersistence:
                 )
             row = cur.fetchone()
             if row:
-                company_id = row[0]
+                company_id = str(row[0])
                 cur.execute(
                     "UPDATE companies SET domain = COALESCE(domain, %s), updated_at = NOW() WHERE id = %s",
                     (clean_domain, company_id),
                 )
-                return str(company_id)
-            cur.execute(
-                """INSERT INTO companies (name, normalized_name, domain)
-                   VALUES (%s, %s, %s) RETURNING id""",
-                (name.strip(), normalized, clean_domain),
-            )
-            return str(cur.fetchone()[0])
+            else:
+                cur.execute(
+                    """INSERT INTO companies (name, normalized_name, domain)
+                       VALUES (%s, %s, %s) RETURNING id""",
+                    (name.strip(), normalized, clean_domain),
+                )
+                company_id = str(cur.fetchone()[0])
+                cur.execute(
+                    """INSERT INTO company_aliases (company_id, alias, normalized_alias, alias_type)
+                       VALUES (%s, %s, %s, 'source_name')
+                       ON CONFLICT (company_id, normalized_alias, alias_type) DO NOTHING""",
+                    (company_id, name.strip(), normalized),
+                )
+            if clean_domain:
+                cur.execute(
+                    """INSERT INTO company_domains (company_id, normalized_domain, domain_type, is_primary)
+                       VALUES (%s, %s, 'primary', true)
+                       ON CONFLICT (company_id, normalized_domain) DO UPDATE SET
+                           is_primary = EXCLUDED.is_primary, last_seen_at = EXCLUDED.last_seen_at""",
+                    (company_id, clean_domain),
+                )
+            return company_id
 
     def _upsert_company_location(
         self, company_id: str, address: str, lat: float | None, lng: float | None

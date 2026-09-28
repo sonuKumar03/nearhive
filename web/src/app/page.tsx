@@ -9,12 +9,10 @@ import BackgroundScrapeWidget from '@/components/scrapers/BackgroundScrapeWidget
 import { useCompanies } from '@/hooks/useCompanies';
 import { useNearbyJobs } from '@/hooks/useNearbyJobs';
 import { useClusters } from '@/hooks/useClusters';
-import { useScrapeJobs } from '@/hooks/useScrapeJobs';
 import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
-import { useLiveTimer, getJobRuntimeInfo } from '@/lib/runtime';
 import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown, Sparkles } from 'lucide-react';
 
 const CITY_PRESETS = [
@@ -72,22 +70,13 @@ export default function HomePage() {
   // Initialize guest session
   useAuth();
 
-  // Track active background scraping & discovery jobs
-  const { data: jobsData } = useScrapeJobs();
+  // Track Python discovery runs.
   const { data: discoveryData } = useDiscoveryJobs();
-  const allJobs = jobsData?.jobs || [];
   const allDiscoveryJobs = discoveryData?.jobs || [];
-  const runningJobs = allJobs.filter((j) => j.status === 'running' || j.status === 'pending');
   const runningDiscovery = allDiscoveryJobs.filter(
-    (j) => j.status === 'running' || j.status === 'pending'
+    (j) => j.status === 'in_progress' || j.status === 'queued'
   );
-  const totalRunningSightings =
-    runningJobs.reduce((acc, j) => acc + (j.sightings || 0), 0) +
-    runningDiscovery.reduce((acc, j) => acc + (j.company_count || 0), 0);
-  const isAnyJobRunning = runningJobs.length > 0 || runningDiscovery.length > 0;
-  const now = useLiveTimer(isAnyJobRunning);
-  const activeJob = runningDiscovery[0] || runningJobs[0];
-  const activeRuntime = activeJob ? getJobRuntimeInfo(activeJob, now) : null;
+  const isAnyJobRunning = runningDiscovery.length > 0;
 
   const { data: searchData, isLoading: loadingCompanies } = useCompanies({
     lat: center.lat,
@@ -119,7 +108,6 @@ export default function HomePage() {
   const companies = searchData?.companies || [];
   const clusters = clusterData?.clusters || [];
   const totalCount = searchData?.meta?.total ?? companies.length;
-  const isJobRunning = runningJobs.length > 0;
 
   // Automatically sync selected company profile with latest verified search data
   useEffect(() => {
@@ -344,24 +332,11 @@ export default function HomePage() {
             <button
               onClick={() => setIsScrapeOpen(true)}
               className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/20 transition-all cursor-pointer animate-pulse"
-              title="Click to view full discovery & scraper tasks"
+              title="View discovery runs"
             >
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span className="font-semibold">
-                {runningDiscovery.length > 0
-                  ? `${runningDiscovery.length} Discovery Active`
-                  : runningJobs.length === 1
-                  ? `Crawling ${runningJobs[0].region}...`
-                  : `${runningJobs.length} Scrapers Active`}
-              </span>
-              <span className="font-mono text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold flex items-center gap-1">
-                <span>{totalRunningSightings} found</span>
-                {activeRuntime?.shortText && (
-                  <>
-                    <span className="opacity-40">•</span>
-                    <span>{activeRuntime.shortText}</span>
-                  </>
-                )}
+                {runningDiscovery.length} Discovery Active
               </span>
             </button>
           )}
@@ -386,7 +361,7 @@ export default function HomePage() {
 
           <button
             onClick={() => setIsScrapeOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition-all cursor-pointer shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 transition-all cursor-pointer shrink-0"
           >
             <Sparkles className="w-3.5 h-3.5 fill-current" />
             <span className="hidden sm:inline">Discover Tech Hub</span>
@@ -461,7 +436,7 @@ export default function HomePage() {
             onClick={() => setMobileTab('map')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               mobileTab === 'map'
-                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25'
+                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/25'
                 : 'text-slate-300 hover:text-white'
             }`}
           >
@@ -473,7 +448,7 @@ export default function HomePage() {
             onClick={() => setMobileTab('list')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               mobileTab === 'list'
-                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25'
+                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/25'
                 : 'text-slate-300 hover:text-white'
             }`}
           >
@@ -499,7 +474,6 @@ export default function HomePage() {
           defaultMode={selectedDefaultMode}
           currentCenter={selectedModalCenter}
           currentRadiusKm={radiusKm}
-          activeJobIds={activeJobIds}
           onTriggerJob={(id) => {
             setActiveJobIds((prev) => [id, ...prev.filter((x) => x !== id)]);
           }}
@@ -510,9 +484,6 @@ export default function HomePage() {
           <BackgroundScrapeWidget
             activeJobIds={activeJobIds}
             onOpenDetails={() => setIsScrapeOpen(true)}
-            onDismissJob={(id) => {
-              setActiveJobIds((prev) => prev.filter((x) => x !== id));
-            }}
             onDismissAll={() => setActiveJobIds([])}
           />
         )}

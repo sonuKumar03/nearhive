@@ -203,3 +203,28 @@ def record_source_run(conn: Any, run: DiscoverySourceRun) -> None:
                 "finished_at": run.finished_at,
             },
         )
+
+
+def reap_exhausted_jobs(conn: Any) -> int:
+    """Mark leases that expired after the final attempt as failed.
+
+    claim_job only reclaims jobs with attempts < max_attempts. Without this
+    sweep, a worker that dies on its last attempt leaves the job stuck in
+    'running' forever, so the client polls in_progress indefinitely.
+
+    Returns the number of jobs marked failed.
+    """
+    query = """
+    UPDATE discovery_jobs
+    SET status = 'failed',
+        error = COALESCE(error, 'lease expired after maximum attempts'),
+        finished_at = NOW(),
+        updated_at = NOW()
+    WHERE status = 'running'
+      AND lease_expires_at IS NOT NULL
+      AND lease_expires_at < NOW()
+      AND attempts >= max_attempts;
+    """
+    with conn.cursor() as cur:
+        cur.execute(query)
+        return cur.rowcount

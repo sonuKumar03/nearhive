@@ -1,5 +1,10 @@
 # NearHive Implementation Plan
 
+> ⚠️ **SUPERSEDED (2026-09-28).** Go no longer crawls, validates, or ingests scraped
+> data. Python owns discovery and writes canonical company/job records; Go serves
+> authentication and read-only queries. This document is kept for history. See the
+> [Python-Owned Discovery and Go Read API Plan](2026-09-28-python-owned-discovery-architecture.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build and deploy NearHive — a high-performance, modular Go web scraper and REST API for identifying, geolocating, deduplicating, and cross-verifying tech companies within a user-defined radius.

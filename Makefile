@@ -1,4 +1,4 @@
-.PHONY: help up dev down stop restart logs logs-app logs-db logs-web logs-crawler logs-discovery clean clean-volume ps build test test-discovery local-run
+.PHONY: help up dev down stop restart logs logs-app logs-db logs-web logs-discovery clean clean-volume ps build test test-discovery local-run
 
 # Default target
 all: help
@@ -14,7 +14,6 @@ help: ## Show this help message
 	@echo "  make logs           Stream logs from all services"
 	@echo "  make logs-web       Stream logs from the Next.js React frontend"
 	@echo "  make logs-app       Stream logs from the Go NearHive application"
-	@echo "  make logs-crawler   Stream logs from the standalone crawler daemon"
 	@echo "  make logs-discovery Stream logs from the Python discovery worker"
 	@echo "  make logs-db        Stream logs from PostGIS database"
 	@echo "  make ps             Show container status"
@@ -53,9 +52,6 @@ logs-web: ## Follow web frontend logs
 logs-app: ## Follow application logs
 	docker compose logs -f app
 
-logs-crawler: ## Follow standalone crawler logs
-	docker compose logs -f crawler
-
 logs-discovery: ## Follow Python discovery worker logs
 	docker compose logs -f python-discovery
 
@@ -77,8 +73,8 @@ build: ## Rebuild docker images
 test: ## Run unit and package tests
 	go test -v ./...
 
-test-discovery: ## Run Python company discovery end-to-end test suite
-	cd python-discovery && (command -v uv >/dev/null 2>&1 && uv run pytest -v tests/test_e2e.py || python3 -m pytest -v tests/test_e2e.py || pytest -v tests/test_e2e.py)
+test-discovery: ## Run focused Python discovery checks
+	cd python-discovery && NEARHIVE_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nearhive_test DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nearhive_test uv run pytest -q tests/test_persistence.py tests/test_operations_api.py tests/test_queue.py
 
 local-run: ## Build and run locally with native Go
 	go build -o bin/nearhive ./cmd/nearhive

@@ -1,5 +1,10 @@
 # Standalone Crawler Service Implementation Plan
 
+> ⚠️ **SUPERSEDED (2026-09-28).** Go no longer crawls, validates, or ingests scraped
+> data; the standalone Go crawler service has been retired. Python owns discovery and
+> writes canonical records directly. This document is kept for history. See the
+> [Python-Owned Discovery and Go Read API Plan](2026-09-28-python-owned-discovery-architecture.md).
+
 **Date:** 2026-09-26  
 **Status:** In Progress  
 **Spec Reference:** [`docs/superpowers/specs/2026-09-26-standalone-crawler-service-infra-spec.md`](../specs/2026-09-26-standalone-crawler-service-infra-spec.md)  

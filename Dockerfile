@@ -19,8 +19,6 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 COPY --from=builder /build/nearhive /usr/local/bin/nearhive
-COPY --from=builder /build/migrations /app/migrations
-COPY --from=builder /build/config /app/config
 
 EXPOSE 8080
 

@@ -61,6 +61,8 @@ class TestLocationResolver:
             company_name="Nova Corp",
             title="Senior Go Engineer",
             location_raw="Austin, TX (Remote)",
+            lat=30.2672,
+            lng=-97.7431,
             work_arrangement=WorkArrangement.REMOTE,
         )
 

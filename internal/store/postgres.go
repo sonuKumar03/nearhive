@@ -58,10 +58,6 @@ func (s *PostgresStore) DB() *sql.DB {
 	return s.db.DB
 }
 
-func (s *PostgresStore) SqlxDB() *sqlx.DB {
-	return s.db
-}
-
 // UserStore implementation
 func (s *PostgresStore) CreateUser(ctx context.Context, u *model.User) error {
 	query := `INSERT INTO users (id, email, password, created_at, updated_at) 
@@ -96,20 +92,6 @@ func (s *PostgresStore) GetUserByID(ctx context.Context, id uuid.UUID) (*model.U
 	return &u, err
 }
 
-// CompanyStore implementation
-func (s *PostgresStore) CreateCompany(ctx context.Context, c *model.Company) error {
-	if c.ID == uuid.Nil {
-		c.ID = uuid.New()
-	}
-	now := time.Now()
-	c.CreatedAt = now
-	c.UpdatedAt = now
-	query := `INSERT INTO companies (id, name, normalized_name, domain, industry, employee_count, description, verified, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-	_, err := s.db.ExecContext(ctx, query, c.ID, c.Name, c.NormalizedName, c.Domain, c.Industry, c.EmployeeCount, c.Description, c.Verified, c.CreatedAt, c.UpdatedAt)
-	return err
-}
-
 func (s *PostgresStore) GetCompanyByID(ctx context.Context, id uuid.UUID) (*model.Company, error) {
 	var c model.Company
 	query := `SELECT id, name, normalized_name, domain, industry, employee_count, description, verified, created_at, updated_at
@@ -121,68 +103,6 @@ func (s *PostgresStore) GetCompanyByID(ctx context.Context, id uuid.UUID) (*mode
 	return &c, err
 }
 
-func (s *PostgresStore) FindByDomain(ctx context.Context, domain string) (*model.Company, error) {
-	var c model.Company
-	query := `SELECT id, name, normalized_name, domain, industry, employee_count, description, verified, created_at, updated_at
-	          FROM companies WHERE domain = $1 LIMIT 1`
-	err := s.db.GetContext(ctx, &c, query, domain)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return &c, err
-}
-
-func (s *PostgresStore) FindByNormalizedName(ctx context.Context, name string) (*model.Company, error) {
-	var c model.Company
-	query := `SELECT id, name, normalized_name, domain, industry, employee_count, description, verified, created_at, updated_at
-	          FROM companies WHERE normalized_name = $1 LIMIT 1`
-	err := s.db.GetContext(ctx, &c, query, name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return &c, err
-}
-
-func (s *PostgresStore) FindByFuzzyName(ctx context.Context, name string, threshold float64) (*model.Company, error) {
-	var c model.Company
-	query := `SELECT id, name, normalized_name, domain, industry, employee_count, description, verified, created_at, updated_at
-	          FROM companies 
-	          WHERE similarity(normalized_name, $1) > $2
-	          ORDER BY similarity(normalized_name, $1) DESC
-	          LIMIT 1`
-	err := s.db.GetContext(ctx, &c, query, name, threshold)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return &c, err
-}
-
-func (s *PostgresStore) UpdateCompany(ctx context.Context, c *model.Company) error {
-	c.UpdatedAt = time.Now()
-	query := `UPDATE companies SET name = $1, normalized_name = $2, domain = $3, industry = $4,
-	          employee_count = $5, description = $6, verified = $7, updated_at = $8
-	          WHERE id = $9`
-	_, err := s.db.ExecContext(ctx, query, c.Name, c.NormalizedName, c.Domain, c.Industry, c.EmployeeCount, c.Description, c.Verified, c.UpdatedAt, c.ID)
-	return err
-}
-
-// LocationStore implementation
-func (s *PostgresStore) CreateLocation(ctx context.Context, l *model.Location) error {
-	if l.ID == uuid.Nil {
-		l.ID = uuid.New()
-	}
-	now := time.Now()
-	l.CreatedAt = now
-	l.UpdatedAt = now
-	if l.PresenceType == "" {
-		l.PresenceType = model.PresenceTypeProbableOffice
-	}
-	query := `INSERT INTO locations (id, company_id, label, address, city, state, country, pincode, coords, confidence, presence_type, verified, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326)::geography, $11, $12, $13, $14, $15)`
-	_, err := s.db.ExecContext(ctx, query, l.ID, l.CompanyID, l.Label, l.Address, l.City, l.State, l.Country, l.Pincode, l.Lng, l.Lat, l.Confidence, string(l.PresenceType), l.Verified, l.CreatedAt, l.UpdatedAt)
-	return err
-}
-
 func (s *PostgresStore) GetLocationsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Location, error) {
 	var locs []model.Location
 	query := `SELECT id, company_id, label, address, city, state, country, pincode,
@@ -191,35 +111,6 @@ func (s *PostgresStore) GetLocationsByCompany(ctx context.Context, companyID uui
 	          FROM locations WHERE company_id = $1`
 	err := s.db.SelectContext(ctx, &locs, query, companyID)
 	return locs, err
-}
-
-func (s *PostgresStore) FindNearbyLocation(ctx context.Context, companyID uuid.UUID, lat, lng float64, radiusMeters float64) (*model.Location, error) {
-	var l model.Location
-	query := `SELECT id, company_id, label, address, city, state, country, pincode,
-	                 ST_Y(coords::geometry) as lat, ST_X(coords::geometry) as lng,
-	                 confidence, presence_type, verified, created_at, updated_at
-	          FROM locations 
-	          WHERE company_id = $1 
-	            AND ST_DWithin(coords, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
-	          ORDER BY ST_Distance(coords, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography) ASC
-	          LIMIT 1`
-	err := s.db.GetContext(ctx, &l, query, companyID, lng, lat, radiusMeters)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	return &l, err
-}
-
-func (s *PostgresStore) UpdateLocationConfidence(ctx context.Context, id uuid.UUID, confidence float64) error {
-	query := `UPDATE locations SET confidence = $1, updated_at = NOW() WHERE id = $2`
-	_, err := s.db.ExecContext(ctx, query, confidence, id)
-	return err
-}
-
-func (s *PostgresStore) UpdateLocationCoords(ctx context.Context, id uuid.UUID, lat, lng float64) error {
-	query := `UPDATE locations SET coords = ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, updated_at = NOW() WHERE id = $3`
-	_, err := s.db.ExecContext(ctx, query, lng, lat, id)
-	return err
 }
 
 type searchCompanyRow struct {
@@ -256,7 +147,8 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	      AND tj.posted_at >= NOW() - INTERVAL '14 days'
 	      AND (tj.publication_state = 'posted_recently' OR (tj.posted_at_confidence > 0 AND tj.publication_state NOT IN ('observed_recently', 'stale')))
 	) j ON TRUE
-	WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+	WHERE l.presence_type <> 'job_location_only'
+	  AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	  AND ($4::float IS NULL OR l.confidence >= $4)
 	  AND ($5::text IS NULL OR c.industry ILIKE '%' || $5 || '%')
 	  AND ($6::text IS NULL OR c.name ILIKE '%' || $6 || '%' OR c.normalized_name % $6)
@@ -284,16 +176,13 @@ func (s *PostgresStore) Search(ctx context.Context, lat, lng, radiusMeters float
 	return results, nil
 }
 
-func (s *PostgresStore) SearchNearbyCompanies(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
-	return s.Search(ctx, lat, lng, radiusMeters, opts)
-}
-
 func (s *PostgresStore) CountSearch(ctx context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
 	query := `
 	SELECT COUNT(*)
 	FROM locations l
 	JOIN companies c ON c.id = l.company_id
-	WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+	WHERE l.presence_type <> 'job_location_only'
+	  AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	  AND ($4::float IS NULL OR l.confidence >= $4)
 	  AND ($5::text IS NULL OR c.industry ILIKE '%' || $5 || '%')
 	  AND ($6::text IS NULL OR c.name ILIKE '%' || $6 || '%' OR c.normalized_name % $6)
@@ -315,7 +204,8 @@ func (s *PostgresStore) ClusterSearch(ctx context.Context, lat, lng, radiusMeter
 	WITH matched_locations AS (
 		SELECT l.coords::geometry AS geom
 		FROM locations l
-		WHERE ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+		WHERE l.presence_type <> 'job_location_only'
+		  AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 	),
 	clustered AS (
 		SELECT 
@@ -344,50 +234,6 @@ func (s *PostgresStore) ClusterSearch(ctx context.Context, lat, lng, radiusMeter
 	return clusters, nil
 }
 
-// SightingStore implementation
-func (s *PostgresStore) SaveSightings(ctx context.Context, source string, sightings []model.Sighting) error {
-	if len(sightings) == 0 {
-		return nil
-	}
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.PrepareNamedContext(ctx, `
-		INSERT INTO sightings (id, source, source_family, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, scraped_at)
-		VALUES (:id, :source, :source_family, :source_url, :company_name, :raw_address, :lat, :lng, :metadata, :company_id, :location_id, :scraped_at)
-		ON CONFLICT (id) DO UPDATE SET
-			source = EXCLUDED.source,
-			source_family = COALESCE(NULLIF(EXCLUDED.source_family, ''), sightings.source_family),
-			company_id = COALESCE(EXCLUDED.company_id, sightings.company_id),
-			location_id = COALESCE(EXCLUDED.location_id, sightings.location_id)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, s := range sightings {
-		if s.ID == uuid.Nil {
-			s.ID = uuid.New()
-		}
-		if s.Source == "" {
-			s.Source = source
-		}
-		if s.ScrapedAt.IsZero() {
-			s.ScrapedAt = time.Now()
-		}
-		if _, err := stmt.ExecContext(ctx, s); err != nil {
-			return err
-		}
-	}
-
-
-	return tx.Commit()
-}
-
 func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	var sightings []model.Sighting
 	query := `SELECT id, source, source_family, source_record_id, content_hash, discovery_job_id, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, first_seen_at, last_seen_at, scraped_at
@@ -396,121 +242,3 @@ func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uui
 	return sightings, err
 }
 
-func (s *PostgresStore) LinkSighting(ctx context.Context, sightingID uuid.UUID, companyID, locationID uuid.UUID) error {
-	query := `UPDATE sightings SET company_id = $1, location_id = $2 WHERE id = $3`
-	_, err := s.db.ExecContext(ctx, query, companyID, locationID, sightingID)
-	return err
-}
-
-// JobStore implementation
-func (s *PostgresStore) CreateJob(ctx context.Context, job *model.ScrapeJob) error {
-	if job.ID == uuid.Nil {
-		job.ID = uuid.New()
-	}
-	if job.CreatedAt.IsZero() {
-		job.CreatedAt = time.Now()
-	}
-	query := `INSERT INTO scrape_jobs (id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
-	_, err := s.db.ExecContext(ctx, query, job.ID, job.Source, job.Status, job.Region, job.Sightings, job.Error, job.Lat, job.Lng, job.RadiusKM, job.WorkerID, job.LastHeartbeatAt, job.Attempts, job.StartedAt, job.FinishedAt, job.CreatedAt)
-	return err
-}
-
-func (s *PostgresStore) UpdateJob(ctx context.Context, job *model.ScrapeJob) error {
-	query := `UPDATE scrape_jobs SET status = $1, sightings = $2, error = $3, worker_id = $4, last_heartbeat_at = $5, attempts = $6, started_at = $7, finished_at = $8 WHERE id = $9`
-	_, err := s.db.ExecContext(ctx, query, job.Status, job.Sightings, job.Error, job.WorkerID, job.LastHeartbeatAt, job.Attempts, job.StartedAt, job.FinishedAt, job.ID)
-	return err
-}
-
-func (s *PostgresStore) GetJobByID(ctx context.Context, id uuid.UUID) (*model.ScrapeJob, error) {
-	var job model.ScrapeJob
-	query := `SELECT id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at FROM scrape_jobs WHERE id = $1`
-	err := s.db.GetContext(ctx, &job, query, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := s.GetTasksByJobID(ctx, id)
-	if err == nil {
-		job.Tasks = tasks
-	}
-	job.ComputeRuntime()
-	return &job, nil
-}
-
-func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]model.ScrapeJob, error) {
-	var jobs []model.ScrapeJob
-	query := `SELECT id, source, status, region, sightings, error, lat, lng, radius_km, worker_id, last_heartbeat_at, attempts, started_at, finished_at, created_at FROM scrape_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-	err := s.db.SelectContext(ctx, &jobs, query, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	for i := range jobs {
-		tasks, _ := s.GetTasksByJobID(ctx, jobs[i].ID)
-		if tasks == nil {
-			tasks = []model.ScrapeTask{}
-		}
-		jobs[i].Tasks = tasks
-		jobs[i].ComputeRuntime()
-	}
-	return jobs, nil
-}
-
-func (s *PostgresStore) CreateTask(ctx context.Context, task *model.ScrapeTask) error {
-	if task.ID == uuid.Nil {
-		task.ID = uuid.New()
-	}
-	if task.CreatedAt.IsZero() {
-		task.CreatedAt = time.Now()
-	}
-	query := `INSERT INTO scrape_tasks (id, job_id, source, status, sightings, error, duration_ms, started_at, finished_at, created_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-	_, err := s.db.ExecContext(ctx, query, task.ID, task.JobID, task.Source, task.Status, task.Sightings, task.Error, task.DurationMS, task.StartedAt, task.FinishedAt, task.CreatedAt)
-	return err
-}
-
-func (s *PostgresStore) UpdateTask(ctx context.Context, task *model.ScrapeTask) error {
-	query := `UPDATE scrape_tasks SET status = $1, sightings = $2, error = $3, duration_ms = $4, started_at = $5, finished_at = $6 WHERE id = $7`
-	_, err := s.db.ExecContext(ctx, query, task.Status, task.Sightings, task.Error, task.DurationMS, task.StartedAt, task.FinishedAt, task.ID)
-	return err
-}
-
-func (s *PostgresStore) GetTasksByJobID(ctx context.Context, jobID uuid.UUID) ([]model.ScrapeTask, error) {
-	var tasks []model.ScrapeTask
-	query := `SELECT id, job_id, source, status, sightings, error, duration_ms, started_at, finished_at, created_at FROM scrape_tasks WHERE job_id = $1 ORDER BY created_at ASC`
-	err := s.db.SelectContext(ctx, &tasks, query, jobID)
-	if err != nil {
-		return nil, err
-	}
-	if tasks == nil {
-		tasks = []model.ScrapeTask{}
-	}
-	for i := range tasks {
-		tasks[i].ComputeRuntime()
-	}
-	return tasks, nil
-}
-
-// SearchHistoryStore implementation
-func (s *PostgresStore) RecordSearch(ctx context.Context, h *model.SearchHistory) error {
-	if h.ID == uuid.Nil {
-		h.ID = uuid.New()
-	}
-	if h.SearchedAt.IsZero() {
-		h.SearchedAt = time.Now()
-	}
-	query := `INSERT INTO search_history (id, user_id, query_lat, query_lng, radius_km, result_count, searched_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7)`
-	_, err := s.db.ExecContext(ctx, query, h.ID, h.UserID, h.QueryLat, h.QueryLng, h.RadiusKM, h.ResultCount, h.SearchedAt)
-	return err
-}
-
-func (s *PostgresStore) GetHistoryByUser(ctx context.Context, userID uuid.UUID, limit int) ([]model.SearchHistory, error) {
-	var history []model.SearchHistory
-	query := `SELECT id, user_id, query_lat, query_lng, radius_km, result_count, searched_at
-	          FROM search_history WHERE user_id = $1 ORDER BY searched_at DESC LIMIT $2`
-	err := s.db.SelectContext(ctx, &history, query, userID, limit)
-	return history, err
-}

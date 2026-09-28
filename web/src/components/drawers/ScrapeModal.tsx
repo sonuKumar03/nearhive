@@ -1,724 +1,95 @@
-import { useState, useEffect, useRef } from 'react';
-import { useTriggerScraper, useCancelScraper, useScrapeJobs } from '@/hooks/useScrapeJobs';
-import {
-  useTriggerDiscovery,
-  useCancelDiscovery,
-  useDiscoveryJobs,
-} from '@/hooks/useDiscoveryJobs';
-import { ScrapeTask, DiscoveryJob, DiscoverySourceRun } from '@/types';
-import {
-  X,
-  Play,
-  RefreshCw,
-  CheckCircle2,
-  AlertCircle,
-  ArrowDownRight,
-  MapPin,
-  Building,
-  Building2,
-  Check,
-  Layers,
-  Sparkles,
-  ChevronDown,
-  ChevronUp,
-  Cpu,
-  Compass,
-  Clock,
-} from 'lucide-react';
-import { useLiveTimer, getJobRuntimeInfo, formatDurationMs } from '@/lib/runtime';
+'use client';
 
-interface ScrapeModalProps {
+import { useEffect, useState } from 'react';
+import { useCancelDiscovery, useDiscoveryJobs, useTriggerDiscovery } from '@/hooks/useDiscoveryJobs';
+
+interface Props {
   isOpen: boolean;
   onClose: () => void;
   defaultRegion?: string;
   defaultMode?: 'coordinates' | 'preset';
   currentCenter?: { lat: number; lng: number };
   currentRadiusKm?: number;
-  activeJobIds: string[];
   onTriggerJob: (id: string) => void;
 }
 
-const CITY_PRESET_OPTIONS = [
-  { name: 'Bangalore', lat: 12.9716, lng: 77.5946, label: 'Bangalore (Electronic City, Whitefield, ORR)' },
-  { name: 'Hyderabad', lat: 17.385, lng: 78.4867, label: 'Hyderabad (HITEC City, Gachibowli)' },
-  { name: 'Pune', lat: 18.5204, lng: 73.8567, label: 'Pune (Hinjawadi, Magarpatta Cybercity)' },
-  { name: 'Chennai', lat: 13.0827, lng: 80.2707, label: 'Chennai (OMR Corridor, Tidel Park)' },
-  { name: 'Gurgaon', lat: 28.4595, lng: 77.0266, label: 'Gurgaon (DLF Cyber City, Udyog Vihar)' },
-  { name: 'Noida', lat: 28.5355, lng: 77.391, label: 'Noida (Sector 62, Expressway IT Hub)' },
+const cities = [
+  { name: 'Bangalore', lat: 12.9716, lng: 77.5946 },
+  { name: 'Hyderabad', lat: 17.385, lng: 78.4867 },
+  { name: 'Pune', lat: 18.5204, lng: 73.8567 },
+  { name: 'Chennai', lat: 13.0827, lng: 80.2707 },
+  { name: 'Gurgaon', lat: 28.4595, lng: 77.0266 },
+  { name: 'Noida', lat: 28.5355, lng: 77.391 },
 ];
 
-export default function ScrapeModal({
-  isOpen,
-  onClose,
-  defaultRegion = 'Bangalore',
-  defaultMode = 'preset',
-  currentCenter,
-  currentRadiusKm = 15,
-  activeJobIds,
-  onTriggerJob,
-}: ScrapeModalProps) {
-  const [mode, setMode] = useState<'coordinates' | 'preset'>(defaultMode);
+export default function ScrapeModal({ isOpen, onClose, defaultRegion = 'Bangalore', defaultMode = 'preset', currentCenter, currentRadiusKm = 15, onTriggerJob }: Props) {
+  const [mode, setMode] = useState(defaultMode);
   const [region, setRegion] = useState(defaultRegion);
   const [radiusKm, setRadiusKm] = useState(currentRadiusKm);
-  const [showLegacySection, setShowLegacySection] = useState(false);
-  const [errorText, setErrorText] = useState<string | null>(null);
-  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const trigger = useTriggerDiscovery();
+  const cancel = useCancelDiscovery();
+  const { data } = useDiscoveryJobs();
 
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    }
-    if (isDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isDropdownOpen]);
-
-  // Re-sync selection state whenever the modal is opened
   useEffect(() => {
     if (isOpen) {
-      if (defaultRegion) {
-        setRegion(defaultRegion);
-      }
-      if (currentRadiusKm) {
-        setRadiusKm(currentRadiusKm);
-      }
-      if (defaultMode) {
-        setMode(defaultMode);
-      }
-      setIsDropdownOpen(false);
-      setErrorText(null);
-      setSuccessNotice(null);
+      setMode(defaultMode);
+      setRegion(defaultRegion);
+      setRadiusKm(currentRadiusKm);
+      setError('');
     }
-  }, [isOpen, defaultRegion, currentRadiusKm, defaultMode]);
+  }, [isOpen, defaultMode, defaultRegion, currentRadiusKm]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    if (isOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    if (!isOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
   }, [isOpen, onClose]);
-
-  // Discovery hooks (Primary Python workflow)
-  const triggerDiscoveryMutation = useTriggerDiscovery();
-  const cancelDiscoveryMutation = useCancelDiscovery();
-  const { data: discoveryJobsData } = useDiscoveryJobs();
-
-  // Legacy Scraper hooks (Go worker workflow)
-  const triggerLegacyMutation = useTriggerScraper();
-  const cancelLegacyMutation = useCancelScraper();
-  const { data: legacyJobsData } = useScrapeJobs();
-
-  const discoveryJobs = discoveryJobsData?.jobs || [];
-  const legacyJobs = legacyJobsData?.jobs || [];
-
-  const relevantDiscoveryJobs = discoveryJobs.slice(0, 4);
-  const relevantLegacyJobs = legacyJobs.slice(0, 3);
-
-  const hasActiveDiscovery =
-    triggerDiscoveryMutation.isPending ||
-    discoveryJobs.some((j) => j.status === 'running' || j.status === 'pending');
-  const hasActiveLegacy =
-    triggerLegacyMutation.isPending ||
-    legacyJobs.some((j) => j.status === 'running' || j.status === 'pending');
-  const hasActiveJobs = hasActiveDiscovery || hasActiveLegacy;
-  const now = useLiveTimer(isOpen && hasActiveJobs);
 
   if (!isOpen) return null;
 
-  function getTargetCoordinates(): { lat: number; lng: number } {
-    if (mode === 'coordinates' && currentCenter) {
-      return { lat: currentCenter.lat, lng: currentCenter.lng };
-    }
-    const preset = CITY_PRESET_OPTIONS.find((p) => p.name === region);
-    return { lat: preset?.lat ?? 12.9716, lng: preset?.lng ?? 77.5946 };
-  }
-
-  // Primary unified action: Run live spatial scraper (Go worker) + Python discovery
-  async function handleStartAll() {
-    setErrorText(null);
-    setSuccessNotice(null);
-    const { lat, lng } = getTargetCoordinates();
-    const regionName = mode === 'coordinates' ? `Loc(${lat.toFixed(3)}, ${lng.toFixed(3)})` : region;
-
+  async function start() {
+    const city = cities.find((item) => item.name === region) || cities[0];
+    const target = mode === 'coordinates' && currentCenter ? currentCenter : city;
+    setError('');
     try {
-      // 1. Dispatch the live spatial Go scraper (OSM Overpass & Wikidata)
-      const legacyRes = await triggerLegacyMutation.mutateAsync({
-        region: regionName,
-        lat,
-        lng,
-        radius_km: radiusKm,
-      });
-      onTriggerJob(legacyRes.id);
-
-      // 2. Also dispatch Python Discovery in parallel for job & evidence enrichment
-      try {
-        const discRes = await triggerDiscoveryMutation.mutateAsync({
-          lat,
-          lng,
-          radius_km: radiusKm,
-        });
-        onTriggerJob(discRes.id);
-      } catch (discErr: any) {
-        console.warn('Discovery trigger error:', discErr);
-      }
-
-      setSuccessNotice(`Dispatched company scraper for ${regionName} (${radiusKm} km radius)`);
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to dispatch company scraper');
+      const job = await trigger.mutateAsync({ lat: target.lat, lng: target.lng, radius_km: radiusKm });
+      onTriggerJob(job.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start discovery');
     }
   }
 
-  // Secondary action: Python Discovery Pipeline Only
-  async function handleStartDiscoveryOnly() {
-    setErrorText(null);
-    setSuccessNotice(null);
-    const { lat, lng } = getTargetCoordinates();
-
-    try {
-      const res = await triggerDiscoveryMutation.mutateAsync({
-        lat,
-        lng,
-        radius_km: radiusKm,
-      });
-      onTriggerJob(res.id);
-      setSuccessNotice(
-        `Dispatched Python Job Discovery around (${lat.toFixed(3)}, ${lng.toFixed(3)}) with ${radiusKm}km radius.`
-      );
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to dispatch discovery job');
-    }
-  }
-
-  // Live Go scraper only
-  async function handleStartLegacyScraper() {
-    setErrorText(null);
-    setSuccessNotice(null);
-    const { lat, lng } = getTargetCoordinates();
-
-    try {
-      const res = await triggerLegacyMutation.mutateAsync({
-        region: mode === 'coordinates' ? `Loc(${lat.toFixed(3)}, ${lng.toFixed(3)})` : region,
-        lat,
-        lng,
-        radius_km: radiusKm,
-      });
-      onTriggerJob(res.id);
-      setSuccessNotice(`Dispatched live Go scraper for ${region}`);
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to dispatch scraper');
-    }
-  }
-
-  async function handleCancelDiscovery(jobId: string) {
-    try {
-      await cancelDiscoveryMutation.mutateAsync(jobId);
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to cancel discovery job');
-    }
-  }
-
-  async function handleCancelLegacy(jobId: string) {
-    try {
-      await cancelLegacyMutation.mutateAsync(jobId);
-    } catch (err: any) {
-      setErrorText(err.message || 'Failed to cancel scraper');
-    }
-  }
-
-  const selectedCity =
-    CITY_PRESET_OPTIONS.find((c) => c.name === region) || CITY_PRESET_OPTIONS[0];
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Company Discovery & Scraper Pipeline"
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
-    >
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl md:max-w-3xl p-6 sm:p-7 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">✨</span>
-            <div>
-              <h3 className="font-bold text-slate-100 text-base">Company Discovery</h3>
-              <p className="text-xs text-slate-400">
-                Multi-source Python Discovery: ATS Jobs, Directories & Registries
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close discovery dialog"
-            className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-          {/* Mode Selector Tabs */}
-          <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-xs">
-            <button
-              type="button"
-              onClick={() => setMode('coordinates')}
-              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
-                mode === 'coordinates'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-900/40'
-              }`}
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              <span>Current Map Location</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('preset')}
-              className={`flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
-                mode === 'preset'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-900/40'
-              }`}
-            >
-              <Building className="w-3.5 h-3.5" />
-              <span>Preset Tech Hub</span>
-            </button>
-          </div>
-
-          {/* Location Controls & Primary Trigger */}
-          <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
-            {mode === 'coordinates' ? (
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Target Coordinates
-                </label>
-                <div className="w-full h-[38px] bg-slate-950 border border-slate-800 rounded-xl px-3 flex items-center justify-between text-xs font-mono text-slate-200 shadow-inner">
-                  {currentCenter ? (
-                    <span className="flex items-center gap-2">
-                      <span className="text-slate-400 font-sans">Lat:</span>
-                      <span className="text-amber-300">{currentCenter.lat.toFixed(4)}</span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-slate-400 font-sans">Lng:</span>
-                      <span className="text-amber-300">{currentCenter.lng.toFixed(4)}</span>
-                    </span>
-                  ) : (
-                    <span className="text-slate-400 font-sans text-xs">Coordinates not detected</span>
-                  )}
-                  <span className="text-[10px] text-slate-500 font-sans bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md">
-                    Active Map Center
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400 pt-0.5">
-                  Discovers tech companies and jobs centered around your active map location.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <label
-                  id="target-tech-hub-label"
-                  className="block text-xs font-semibold text-slate-300"
-                >
-                  Target Tech Hub
-                </label>
-                <div ref={dropdownRef} className="relative">
-                  <button
-                    id="target-tech-hub-select"
-                    type="button"
-                    role="combobox"
-                    aria-labelledby="target-tech-hub-label"
-                    aria-expanded={isDropdownOpen}
-                    aria-haspopup="listbox"
-                    onClick={() => setIsDropdownOpen((prev) => !prev)}
-                    className="w-full h-[38px] bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl px-3 text-xs text-slate-200 flex items-center justify-between focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/30 transition-all cursor-pointer shadow-inner"
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="font-semibold text-slate-100">{selectedCity.name}</span>
-                      <span className="text-[11px] text-slate-400 truncate hidden sm:inline">
-                        {selectedCity.label.replace(/^[^()]+\s*\(/, '(')}
-                      </span>
-                    </span>
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-2 ${
-                        isDropdownOpen ? 'rotate-180 text-amber-400' : ''
-                      }`}
-                    />
-                  </button>
-
-                  {isDropdownOpen && (
-                    <div
-                      role="listbox"
-                      aria-labelledby="target-tech-hub-label"
-                      className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-slate-900/95 border border-slate-700/90 rounded-xl shadow-2xl shadow-black/90 backdrop-blur-md p-1.5 space-y-0.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
-                    >
-                      {CITY_PRESET_OPTIONS.map((c) => {
-                        const isSelected = c.name === region;
-                        const subtext = c.label.replace(/^[^()]+\s*\(/, '(');
-                        return (
-                          <button
-                            key={c.name}
-                            type="button"
-                            role="option"
-                            aria-selected={isSelected}
-                            onClick={() => {
-                              setRegion(c.name);
-                              setIsDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
-                              isSelected
-                                ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30'
-                                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/80 border border-transparent'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="font-medium">{c.name}</span>
-                              <span className="text-[10px] text-slate-400 truncate">
-                                {subtext}
-                              </span>
-                            </div>
-                            {isSelected && (
-                              <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 ml-2" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-400 pt-0.5">
-                  Discovers tech companies and jobs within this recognized tech ecosystem.
-                </p>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1">
-                <label htmlFor="scrape-radius-slider">Search Radius (km)</label>
-                <span className="text-amber-400 font-mono">{radiusKm} km</span>
-              </div>
-              <input
-                id="scrape-radius-slider"
-                aria-label="Search radius in kilometers"
-                type="range"
-                min={1}
-                max={30}
-                step={1}
-                value={radiusKm}
-                onChange={(e) => setRadiusKm(Number(e.target.value))}
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-2 pt-1 flex-wrap">
-              <button
-                type="button"
-                onClick={handleStartDiscoveryOnly}
-                disabled={triggerDiscoveryMutation.isPending || triggerLegacyMutation.isPending}
-                className="px-3 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
-                title="Runs Python ATS job and directory discovery only"
-              >
-                {triggerDiscoveryMutation.isPending ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                )}
-                <span>Job Discovery Only</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleStartAll}
-                disabled={triggerLegacyMutation.isPending || triggerDiscoveryMutation.isPending}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-md shadow-amber-500/20 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer transition-all"
-                title="Scrapes companies from OpenStreetMap & Wikidata within the selected radius"
-              >
-                {triggerLegacyMutation.isPending ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                )}
-                <span>Scrape Companies ({radiusKm} km)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Feedback Alerts */}
-          {errorText && (
-            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span>{errorText}</span>
-            </div>
-          )}
-
-          {successNotice && (
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-              <span>{successNotice}</span>
-            </div>
-          )}
-
-          {/* Active & Recent Spatial Scrape Jobs (Live OSM & Wikidata) */}
-          {relevantLegacyJobs.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-slate-800">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span className="font-semibold flex items-center gap-1.5 text-slate-200">
-                  <span className="text-sm">🕷️</span>
-                  Live Company Scrapes ({relevantLegacyJobs.length})
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">OpenStreetMap & Wikidata</span>
-              </div>
-
-              <div className="space-y-2">
-                {relevantLegacyJobs.map((job) => {
-                  const isLegacyActive = job.status === 'running' || job.status === 'pending';
-                  const legacyRuntime = getJobRuntimeInfo(job, now);
-                  return (
-                    <div
-                      key={job.id}
-                      className="p-3 rounded-xl bg-slate-950 border border-slate-800/90 space-y-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {isLegacyActive ? (
-                            <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                          ) : job.status === 'done' ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : job.status === 'cancelled' ? (
-                            <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
-                          ) : (
-                            <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
-                          )}
-                          <span className="font-semibold text-slate-200">
-                            {job.region || 'Coordinates'}
-                          </span>
-                          {job.radius_km && (
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {job.radius_km} km
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {legacyRuntime.text && (
-                            <span
-                              className={`font-mono px-2 py-0.5 rounded text-[10px] flex items-center gap-1 ${
-                                legacyRuntime.isRunning
-                                  ? 'text-amber-300 bg-amber-500/10 border border-amber-500/20'
-                                  : legacyRuntime.isPending
-                                  ? 'text-slate-400 bg-slate-900 border border-slate-800'
-                                  : 'text-slate-400 bg-slate-900 border border-slate-800/80'
-                              }`}
-                            >
-                              <Clock className={`w-2.5 h-2.5 ${legacyRuntime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
-                              <span>{legacyRuntime.text}</span>
-                            </span>
-                          )}
-                          <span
-                            className={`font-mono px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
-                              job.status === 'done'
-                                ? 'text-emerald-400 bg-emerald-500/10'
-                                : job.status === 'cancelled'
-                                ? 'text-slate-400 bg-slate-500/10'
-                                : job.status === 'failed'
-                                ? 'text-rose-400 bg-rose-500/10'
-                                : 'text-amber-400 bg-amber-500/10'
-                            }`}
-                          >
-                            {job.status}
-                          </span>
-                          {isLegacyActive && (
-                            <button
-                              type="button"
-                              onClick={() => handleCancelLegacy(job.id)}
-                              className="px-2 py-0.5 text-[10px] font-semibold rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
-                        <span>
-                          Sightings Discovered: <strong className="text-amber-400 font-mono">{job.sightings}</strong>
-                        </span>
-                        {job.error && (
-                          <span className="text-rose-400 text-[10px] truncate max-w-[200px]" title={job.error}>
-                            {job.error}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Active & Recent Python Discovery Jobs */}
-          {relevantDiscoveryJobs.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-slate-800">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span className="font-semibold flex items-center gap-1.5 text-slate-200">
-                  <Compass className="w-3.5 h-3.5 text-amber-400" />
-                  Discovery Jobs ({relevantDiscoveryJobs.length})
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">Python Workers</span>
-              </div>
-
-              <div className="space-y-2">
-                {relevantDiscoveryJobs.map((job: DiscoveryJob) => {
-                  const isActive = job.status === 'running' || job.status === 'pending';
-                  const runtime = getJobRuntimeInfo(job, now);
-                  const sourceRuns = job.source_runs || [];
-                  return (
-                    <div
-                      key={job.id}
-                      className="p-3 rounded-xl bg-slate-950 border border-slate-800/90 space-y-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {isActive ? (
-                            <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                          ) : job.status === 'completed' ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : job.status === 'partial' ? (
-                            <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-                          ) : (
-                            <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
-                          )}
-                          <span className="font-semibold text-slate-200">
-                            Discovery ({job.lat.toFixed(3)}, {job.lng.toFixed(3)})
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {job.radius_km} km
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {runtime.text && (
-                            <span
-                              className={`font-mono px-2 py-0.5 rounded text-[10px] flex items-center gap-1 ${
-                                runtime.isRunning
-                                  ? 'text-amber-300 bg-amber-500/10 border border-amber-500/20'
-                                  : runtime.isPending
-                                  ? 'text-slate-400 bg-slate-900 border border-slate-800'
-                                  : 'text-slate-400 bg-slate-900 border border-slate-800/80'
-                              }`}
-                            >
-                              <Clock className={`w-2.5 h-2.5 ${runtime.isRunning ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} />
-                              <span>{runtime.text}</span>
-                            </span>
-                          )}
-                          <span
-                            className={`font-mono px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
-                              job.status === 'completed'
-                                ? 'text-emerald-400 bg-emerald-500/10'
-                                : job.status === 'partial'
-                                ? 'text-amber-400 bg-amber-500/10'
-                                : job.status === 'cancelled'
-                                ? 'text-slate-400 bg-slate-500/10'
-                                : job.status === 'failed'
-                                ? 'text-rose-400 bg-rose-500/10'
-                                : 'text-amber-400 bg-amber-500/10'
-                            }`}
-                          >
-                            {job.status}
-                          </span>
-                          {isActive && (
-                            <button
-                              type="button"
-                              onClick={() => handleCancelDiscovery(job.id)}
-                              disabled={cancelDiscoveryMutation.isPending}
-                              className="px-2 py-0.5 text-[10px] font-semibold rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Discovered Stats */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
-                        <div className="flex items-center gap-3">
-                          <span>
-                            Companies: <strong className="text-amber-400 font-mono">{job.company_count}</strong>
-                          </span>
-                          <span>
-                            Tech Jobs: <strong className="text-indigo-400 font-mono">{job.job_count}</strong>
-                          </span>
-                          <span>
-                            Evidence: <strong className="text-slate-300 font-mono">{job.evidence_count}</strong>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Source runs breakdown */}
-                      {sourceRuns.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                          {sourceRuns.map((sr: DiscoverySourceRun) => (
-                            <span
-                              key={sr.id}
-                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1"
-                            >
-                              <span className="font-semibold">{sr.source}</span>
-                              <span className="text-amber-400">({sr.company_count} co / {sr.job_count} jobs)</span>
-                              {sr.status === 'running' ? (
-                                <span className="text-amber-300 font-semibold animate-pulse">• running</span>
-                              ) : sr.duration_ms > 0 ? (
-                                <span className="text-slate-400">• {formatDurationMs(sr.duration_ms)}</span>
-                              ) : null}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800 shrink-0">
-          <span className="text-[11px] text-slate-400">
-            {hasActiveJobs
-              ? 'Pipelines are running concurrently in the background.'
-              : 'Ready to discover tech companies nearby.'}
-          </span>
-          {hasActiveJobs ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <span>Run in Background</span>
-              <ArrowDownRight className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <span>Close</span>
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="discovery-title" className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-100 shadow-2xl">
+      <div className="flex items-center justify-between">
+        <h2 id="discovery-title" className="text-lg font-semibold">Discover companies and jobs</h2>
+        <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-white">✕</button>
       </div>
-    </div>
-  );
+      <p className="mt-2 text-sm text-slate-400">Find nearby tech companies and recent technical jobs.</p>
+      <div className="mt-5 flex gap-2">
+        <button type="button" onClick={() => setMode('preset')} className={`rounded-lg px-3 py-2 text-sm ${mode === 'preset' ? 'bg-amber-500 text-black' : 'bg-slate-800'}`}>City</button>
+        <button type="button" onClick={() => setMode('coordinates')} className={`rounded-lg px-3 py-2 text-sm ${mode === 'coordinates' ? 'bg-amber-500 text-black' : 'bg-slate-800'}`}>Map center</button>
+      </div>
+      {mode === 'preset' ? <label className="mt-4 block text-sm">City
+        <select value={region} onChange={(event) => setRegion(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-800 p-2">
+          {cities.map((city) => <option key={city.name} value={city.name}>{city.name}</option>)}
+        </select>
+      </label> : <p className="mt-4 text-sm text-slate-300">{currentCenter ? `${currentCenter.lat.toFixed(4)}, ${currentCenter.lng.toFixed(4)}` : 'Current map center unavailable'}</p>}
+      <label className="mt-4 block text-sm">Radius: {radiusKm} km
+        <input type="range" min="1" max="30" value={radiusKm} onChange={(event) => setRadiusKm(Number(event.target.value))} className="mt-2 w-full accent-amber-500" />
+      </label>
+      {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
+      <button type="button" onClick={start} disabled={trigger.isPending || (mode === 'coordinates' && !currentCenter)} className="mt-5 w-full rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black disabled:opacity-50">{trigger.isPending ? 'Starting…' : 'Start discovery'}</button>
+      {(data?.jobs || []).length > 0 && <div className="mt-6 border-t border-slate-700 pt-4">
+        <h3 className="text-sm font-semibold">Recent discoveries</h3>
+        <ul className="mt-2 space-y-2 text-sm">{data?.jobs.slice(0, 5).map((job) => <li key={job.id} className="flex items-center justify-between rounded-lg bg-slate-800 p-2">
+          <span>{job.status.replace('_', ' ')}</span>
+          {(job.status === 'queued' || job.status === 'in_progress') && <button type="button" onClick={() => cancel.mutate(job.id)} className="text-amber-400 hover:text-amber-300">Cancel</button>}
+        </li>)}</ul>
+      </div>}
+    </section>
+  </div>;
 }

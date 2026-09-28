@@ -1,5 +1,12 @@
 # NearHive Company Intelligence Database Design
 
+> 🟡 **DRAFT / FORWARD-LOOKING — reconciled 2026-09-28.** This umbrella spec is not yet
+> an implementation plan. Ownership has since settled: ingestion is Python-only and Go
+> has read-only access to discovery tables, so the "internal worker token" ingestion
+> path referenced below is retired. Validate ownership assumptions against the
+> [Python-Owned Discovery and Go Read API Plan](../plans/2026-09-28-python-owned-discovery-architecture.md)
+> before turning this into a plan.
+
 **Status:** Draft for review  
 **Date:** 2026-09-28  
 **Scope:** Canonical dataset, ingestion provenance, hiring projections, user preferences, moderation, reviews, compensation, and interview intelligence  

@@ -1,5 +1,9 @@
 # NearHive — Architecture & Correctness Audit
 
+> 🗓️ **HISTORICAL — point-in-time audit (2026-09-26).** The findings below describe the
+> pre-cutover, Go-owned pipeline and have largely been resolved. For current ownership
+> see the [Python-Owned Discovery and Go Read API Plan](superpowers/plans/2026-09-28-python-owned-discovery-architecture.md).
+
 **Date**: 2026-09-26  
 **Scope**: Full-stack audit — Go backend + Next.js frontend  
 **Primary Goal**: Enable scraping from the user's current / arbitrary location instead of static city presets  

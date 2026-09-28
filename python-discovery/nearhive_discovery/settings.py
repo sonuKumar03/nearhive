@@ -7,10 +7,11 @@ from dataclasses import dataclass
 class Settings:
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "postgres://nearhive:password@localhost:5432/nearhive?sslmode=disable",
+        "postgres://postgres:postgres@localhost:5432/nearhive?sslmode=disable",
     )
-    api_base_url: str = os.getenv("NEARHIVE_API_URL", "http://localhost:8080")
-    worker_token: str = os.getenv("NEARHIVE_WORKER_TOKEN") or os.getenv("DISCOVERY_WORKER_TOKEN") or "dev-worker-token"
+    jwt_secret: str = os.getenv("JWT_SECRET", "")
+    api_port: int = int(os.getenv("PORT", os.getenv("NEARHIVE_DISCOVERY_API_PORT", "8090")))
+    allowed_origin: str = os.getenv("NEARHIVE_ALLOWED_ORIGIN", "http://localhost:3000")
     worker_id: str = os.getenv("NEARHIVE_WORKER_ID", f"worker-{uuid.uuid4().hex[:8]}")
     lease_seconds: int = int(os.getenv("NEARHIVE_LEASE_SECONDS", "60"))
     heartbeat_interval_seconds: float = float(os.getenv("NEARHIVE_HEARTBEAT_INTERVAL", "15.0"))

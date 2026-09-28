@@ -1,5 +1,10 @@
 # Stateless Concurrent Crawler & Multi-Scrape Architecture Plan
 
+> ⚠️ **SUPERSEDED (2026-09-28).** The Go crawler daemon described here has been
+> retired. Python owns discovery with one lease-queue worker model; Go serves
+> authentication and read-only queries. This document is kept for history. See the
+> [Python-Owned Discovery and Go Read API Plan](2026-09-28-python-owned-discovery-architecture.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Transform NearHive's web crawler into a fully stateless, horizontally scalable scraping daemon with a concurrent worker pool, and update the Next.js UI to support dispatching and monitoring multiple scraping jobs simultaneously.

@@ -7,14 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/sonukumar/nearhive/internal/model"
 	"github.com/sonukumar/nearhive/internal/store"
 )
 
 type SearchHandler struct {
-	store   store.Store
-	history store.SearchHistoryStore
+	store store.Store
 }
 
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
@@ -130,17 +128,6 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	total, _ := h.store.CountSearch(r.Context(), lat, lng, radiusKM*1000, opts)
-
-	userID := GetUserIDFromContext(r.Context())
-	if userID != uuid.Nil && h.history != nil {
-		_ = h.history.RecordSearch(r.Context(), &model.SearchHistory{
-			UserID:      userID,
-			QueryLat:    lat,
-			QueryLng:    lng,
-			RadiusKM:    radiusKM,
-			ResultCount: len(results),
-		})
-	}
 
 	JSON(w, http.StatusOK, map[string]any{
 		"meta": map[string]any{

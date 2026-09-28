@@ -6,17 +6,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sonukumar/nearhive/internal/auth"
-	"github.com/sonukumar/nearhive/internal/queue"
-	"github.com/sonukumar/nearhive/internal/scraper"
 	"github.com/sonukumar/nearhive/internal/store"
 )
 
-func NewRouter(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, jwtSecret string) *chi.Mux {
-	discoveryHandler := NewDiscoveryHandler(s, nil, "")
-	return NewRouterWithQueue(s, authMgr, orchestrator, nil, jwtSecret, discoveryHandler)
-}
-
-func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scraper.Orchestrator, q queue.JobQueue, jwtSecret string, discoveryHandler *DiscoveryHandler) *chi.Mux {
+func NewRouter(s store.Store, authMgr *auth.Manager) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -24,14 +17,9 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	if discoveryHandler == nil {
-		discoveryHandler = NewDiscoveryHandler(s, nil, "")
-	}
-
 	authHandler := &AuthHandler{store: s, authMgr: authMgr}
-	searchHandler := &SearchHandler{store: s, history: s}
+	searchHandler := &SearchHandler{store: s}
 	companyHandler := &CompanyHandler{store: s}
-	jobHandler := NewJobHandler(s, orchestrator, nil).WithQueue(q)
 
 	// API Root Info
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -72,9 +60,6 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 	r.Post("/api/v1/auth/register", authHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 
-	// Internal discovery batch ingestion route (outside JWT authentication)
-	r.Post("/api/v1/internal/discovery/batches", discoveryHandler.IngestBatch)
-
 	// Protected routes (strictly requires JWT)
 	r.Group(func(protected chi.Router) {
 		protected.Use(AuthMiddleware(authMgr))
@@ -86,16 +71,6 @@ func NewRouterWithQueue(s store.Store, authMgr *auth.Manager, orchestrator *scra
 		protected.Get("/api/v1/companies/{id}", companyHandler.GetCompany)
 		protected.Get("/api/v1/companies/{id}/sightings", companyHandler.GetSightings)
 		protected.Get("/api/v1/companies/{id}/technical-jobs", companyHandler.GetTechnicalJobs)
-		protected.Get("/api/v1/jobs", jobHandler.ListJobs)
-		protected.Post("/api/v1/jobs/trigger", jobHandler.TriggerJob)
-		protected.Get("/api/v1/jobs/{id}", jobHandler.GetJob)
-		protected.Post("/api/v1/jobs/{id}/cancel", jobHandler.CancelJob)
-
-		// Authenticated discovery-job routes
-		protected.Post("/api/v1/discovery/jobs", discoveryHandler.CreateJob)
-		protected.Get("/api/v1/discovery/jobs", discoveryHandler.ListJobs)
-		protected.Get("/api/v1/discovery/jobs/{id}", discoveryHandler.GetJob)
-		protected.Post("/api/v1/discovery/jobs/{id}/cancel", discoveryHandler.CancelJob)
 	})
 
 	return r

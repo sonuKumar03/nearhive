@@ -286,6 +286,77 @@ def test_company_alias_and_domain_written() -> None:
             conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
 
 
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_location_lifecycle_fields_written() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"lifecycle-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Lifecycle Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="  12   Lifecycle Road  ",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                row = conn.execute(
+                    """SELECT location_type, status, country_code, address_hash, first_seen_at, last_seen_at
+                       FROM locations WHERE company_id = (SELECT id FROM companies WHERE domain = %s)""",
+                    (domain,),
+                ).fetchone()
+                assert row is not None
+                assert row[0] == "office"
+                assert row[1] == "unverified"
+                assert row[2] == "IN"
+                assert row[3] is not None
+                first_seen, last_seen = row[4], row[5]
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            locations = conn.execute(
+                """SELECT id, address_hash, last_seen_at
+                   FROM locations WHERE company_id = (SELECT id FROM companies WHERE domain = %s)""",
+                (domain,),
+            ).fetchall()
+
+        assert len(locations) == 1
+        assert locations[0][1] == row[3]
+        assert locations[0][2] >= last_seen
+        assert first_seen is not None
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM sightings WHERE source = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
 def test_persistence_rejects_invalid_coordinates_before_connecting() -> None:
     batch = EvidenceBatch(
         contract_version=1,

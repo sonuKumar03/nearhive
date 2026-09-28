@@ -232,8 +232,21 @@ class PostgresPersistence:
         if lat is None or lng is None:
             return None
         assert self.conn is not None
+        address_hash = _content_hash(re.sub(r"\s+", " ", address.strip()))
         point = "ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography"
         with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM locations WHERE company_id = %s AND address_hash = %s LIMIT 1",
+                (company_id, address_hash),
+            )
+            row = cur.fetchone()
+            if row:
+                location_id = str(row[0])
+                cur.execute(
+                    "UPDATE locations SET last_seen_at = NOW() WHERE id = %s",
+                    (location_id,),
+                )
+                return location_id
             cur.execute(
                 f"""SELECT id FROM locations WHERE company_id = %s
                     AND presence_type <> 'job_location_only'
@@ -243,11 +256,18 @@ class PostgresPersistence:
             )
             row = cur.fetchone()
             if row:
-                return str(row[0])
+                location_id = str(row[0])
+                cur.execute(
+                    "UPDATE locations SET last_seen_at = NOW() WHERE id = %s",
+                    (location_id,),
+                )
+                return location_id
             cur.execute(
-                f"""INSERT INTO locations (company_id, address, coords, presence_type)
-                    VALUES (%s, %s, {point}, 'probable_office') RETURNING id""",
-                (company_id, address.strip(), lng, lat),
+                f"""INSERT INTO locations (company_id, address, coords, presence_type,
+                        location_type, status, country_code, address_hash)
+                    VALUES (%s, %s, {point}, 'probable_office', 'office', 'unverified', 'IN', %s)
+                    RETURNING id""",
+                (company_id, address.strip(), lng, lat, address_hash),
             )
             return str(cur.fetchone()[0])
 

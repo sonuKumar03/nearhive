@@ -72,8 +72,8 @@ export interface Sighting {
   source_url?: string;
   company_name: string;
   raw_address: string;
-  lat: number;
-  lng: number;
+  lat?: number | null;
+  lng?: number | null;
   metadata?: Record<string, any>;
   company_id?: string;
   location_id?: string;

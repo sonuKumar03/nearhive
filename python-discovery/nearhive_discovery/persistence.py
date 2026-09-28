@@ -127,6 +127,10 @@ class PostgresPersistence:
             raise RuntimeError("PostgresPersistence must be used as a context manager")
         self.validate(batch)
         with self.conn.transaction():
+            data_source_id = self._register_source(batch.source, batch.source_family)
+            ingestion_run_id = self._upsert_ingestion_run(
+                data_source_id, self._discovery_job_id(batch.discovery_job_id)
+            )
             company_results: list[BatchRecordResult] = []
             job_results: list[BatchRecordResult] = []
             for index, evidence in enumerate(batch.companies):
@@ -135,11 +139,41 @@ class PostgresPersistence:
                     company_id, evidence.address, evidence.lat, evidence.lng
                 )
                 self._upsert_sighting(batch, evidence, company_id, location_id)
+                payload: dict[str, Any] = {"name": evidence.name, "address": evidence.address}
+                if evidence.domain is not None:
+                    payload["domain"] = evidence.domain
+                if evidence.lat is not None:
+                    payload["lat"] = evidence.lat
+                if evidence.lng is not None:
+                    payload["lng"] = evidence.lng
+                if evidence.phone is not None:
+                    payload["phone"] = evidence.phone
+                record_id = self._upsert_source_record(
+                    data_source_id,
+                    ingestion_run_id,
+                    "company",
+                    evidence.source_record_id or None,
+                    evidence.evidence_url,
+                    payload,
+                )
+                self._link_company_record(company_id, record_id)
                 company_results.append(BatchRecordResult(index=index, status="accepted"))
             for index, evidence in enumerate(batch.jobs):
                 company_id = self._upsert_company(evidence.company_name, evidence.company_domain)
-                self._upsert_job(batch, evidence, company_id)
+                job_id = self._upsert_job(batch, evidence, company_id)
+                record_id = self._upsert_source_record(
+                    data_source_id,
+                    ingestion_run_id,
+                    "job",
+                    evidence.source_job_id or None,
+                    evidence.canonical_url or None,
+                    evidence.to_dict(),
+                )
+                self._link_job_record(job_id, record_id)
                 job_results.append(BatchRecordResult(index=index, status="accepted"))
+            self._complete_ingestion_run(
+                ingestion_run_id, len(company_results) + len(job_results)
+            )
         return BatchResult(companies=company_results, jobs=job_results)
 
     def _upsert_company(self, name: str, domain: str | None) -> str:
@@ -242,7 +276,7 @@ class PostgresPersistence:
                 ),
             )
 
-    def _upsert_job(self, batch: EvidenceBatch, evidence: Any, company_id: str) -> None:
+    def _upsert_job(self, batch: EvidenceBatch, evidence: Any, company_id: str) -> str:
         assert self.conn is not None
         source_job_id = evidence.source_job_id
         digest = evidence.content_hash or _content_hash(
@@ -309,6 +343,101 @@ class PostgresPersistence:
                 )
             else:
                 cur.execute("DELETE FROM job_locations WHERE job_id = %s", (job_id,))
+            return str(job_id)
+
+    def _register_source(self, source: str, source_family: str) -> str:
+        assert self.conn is not None
+        source_type = {"official_site": "official_site", "job_ats": "official_ats"}.get(
+            source_family, "open_dataset"
+        )
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO data_sources (slug, name, source_type, source_family)
+                   VALUES (%s, %s, %s, %s) ON CONFLICT (slug) DO NOTHING""",
+                (source, source, source_type, source_family),
+            )
+            cur.execute("SELECT id FROM data_sources WHERE slug = %s", (source,))
+            return str(cur.fetchone()[0])
+
+    def _upsert_ingestion_run(
+        self, data_source_id: str, discovery_job_id: str | None, adapter_version: str = "v1"
+    ) -> str:
+        assert self.conn is not None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO ingestion_runs (data_source_id, discovery_job_id, adapter_version, status)
+                   VALUES (%s, %s, %s, 'running') RETURNING id""",
+                (data_source_id, discovery_job_id, adapter_version),
+            )
+            return str(cur.fetchone()[0])
+
+    def _complete_ingestion_run(self, ingestion_run_id: str, accepted: int, rejected: int = 0) -> None:
+        assert self.conn is not None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """UPDATE ingestion_runs
+                   SET accepted_count = %s, rejected_count = %s, status = 'completed',
+                       finished_at = NOW(), updated_at = NOW()
+                   WHERE id = %s""",
+                (accepted, rejected, ingestion_run_id),
+            )
+
+    def _upsert_source_record(
+        self,
+        data_source_id: str,
+        ingestion_run_id: str,
+        record_type: str,
+        external_id: str | None,
+        source_url: str | None,
+        payload: dict,
+    ) -> str:
+        assert self.conn is not None
+        payload_hash = _content_hash(json.dumps(payload, sort_keys=True))
+        if external_id is not None:
+            conflict = "(data_source_id, record_type, external_id) WHERE external_id IS NOT NULL"
+            external_slot = "%s"
+            params: tuple[Any, ...] = (
+                data_source_id, ingestion_run_id, record_type, external_id, source_url,
+            )
+        else:
+            conflict = "(data_source_id, record_type, normalized_payload_hash) WHERE external_id IS NULL"
+            external_slot = "NULL"
+            params = (data_source_id, ingestion_run_id, record_type, source_url)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"""INSERT INTO source_records (
+                        data_source_id, ingestion_run_id, record_type, external_id,
+                        source_url, normalized_payload, normalized_payload_hash, last_seen_at
+                    ) VALUES (%s, %s, %s, {external_slot}, %s, %s, %s, clock_timestamp())
+                    ON CONFLICT {conflict} DO UPDATE SET
+                        last_seen_at = EXCLUDED.last_seen_at,
+                        normalized_payload = EXCLUDED.normalized_payload
+                    RETURNING id""",
+                (*params, Jsonb(payload), payload_hash),
+            )
+            return str(cur.fetchone()[0])
+
+    def _link_company_record(self, company_id: str, source_record_id: str) -> None:
+        assert self.conn is not None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO company_source_links (company_id, source_record_id, relation, confidence)
+                   VALUES (%s, %s, 'evidence', 1.0)
+                   ON CONFLICT (company_id, source_record_id) DO UPDATE SET
+                       last_seen_at = EXCLUDED.last_seen_at""",
+                (company_id, source_record_id),
+            )
+
+    def _link_job_record(self, job_id: str, source_record_id: str) -> None:
+        assert self.conn is not None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO job_source_links (job_id, source_record_id, relation, confidence)
+                   VALUES (%s, %s, 'evidence', 1.0)
+                   ON CONFLICT (job_id, source_record_id) DO UPDATE SET
+                       last_seen_at = EXCLUDED.last_seen_at""",
+                (job_id, source_record_id),
+            )
 
     def _discovery_job_id(self, job_id: str) -> str | None:
         assert self.conn is not None

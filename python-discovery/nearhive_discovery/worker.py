@@ -12,15 +12,16 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 import psycopg
 
-from nearhive_discovery.client import IngestionClient
 from nearhive_discovery.location import LocationResolver, resolve_job_location
 from nearhive_discovery.contracts import (
+    BatchResult,
     DiscoveryJob,
     DiscoverySourceRun,
     DiscoveryStatus,
     EvidenceBatch,
 )
 from nearhive_discovery.http import PlaywrightPool
+from nearhive_discovery.persistence import PostgresPersistence
 from nearhive_discovery.queue import (
     claim_job,
     finish_job,
@@ -51,7 +52,6 @@ class Worker:
     def __init__(
         self,
         db_url: str = settings.database_url,
-        client: IngestionClient | None = None,
         sources: list[Source] | None = None,
         worker_id: str | None = None,
         lease_seconds: int = settings.lease_seconds,
@@ -64,10 +64,6 @@ class Worker:
         location_resolver: Any | None = None,
     ) -> None:
         self.db_url = db_url
-        self.client = client if client is not None else IngestionClient(
-            base_url=settings.api_base_url,
-            worker_token=settings.worker_token,
-        )
         self.worker_id = worker_id if worker_id is not None else settings.worker_id
         self.lease_seconds = lease_seconds
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
@@ -108,6 +104,10 @@ class Worker:
             logger.info("Claimed job %s on worker %s", job.id, self.worker_id)
             self._process_job(conn, job)
             return True
+
+    def _submit_batch(self, batch: EvidenceBatch) -> BatchResult:
+        with PostgresPersistence(self.db_url) as persistence:
+            return persistence.persist(batch)
 
     async def _resolve_batch_jobs_async(self, batch: EvidenceBatch) -> EvidenceBatch:
         if not self.location_resolver or not batch.jobs:
@@ -381,7 +381,7 @@ class Worker:
                         batch = await self._resolve_batch_jobs_async(batch)
                         if on_batch is not None:
                             on_batch(batch)
-                        result = self.client.submit(batch)
+                        result = self._submit_batch(batch)
                         source_comp_count += result.accepted_companies
                         source_job_count += result.accepted_jobs
                         source_ev_count += result.total_accepted
@@ -406,7 +406,7 @@ class Worker:
                 raw_batches = self._resolve_batch_jobs_sync(raw_batches)
                 if on_batch is not None:
                     on_batch(raw_batches)
-                result = self.client.submit(raw_batches)
+                result = self._submit_batch(raw_batches)
                 source_comp_count += result.accepted_companies
                 source_job_count += result.accepted_jobs
                 source_ev_count += result.total_accepted
@@ -427,7 +427,7 @@ class Worker:
                     batch = self._resolve_batch_jobs_sync(batch)
                     if on_batch is not None:
                         on_batch(batch)
-                    result = self.client.submit(batch)
+                    result = self._submit_batch(batch)
                     source_comp_count += result.accepted_companies
                     source_job_count += result.accepted_jobs
                     source_ev_count += result.total_accepted
@@ -599,6 +599,7 @@ def get_default_sources() -> list[Source]:
 def main() -> None:
     import os
     import signal
+    from nearhive_discovery.operations_api import create_server
 
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
@@ -618,15 +619,24 @@ def main() -> None:
 
     sources = get_default_sources()
     worker = Worker(sources=sources)
+    api = create_server(
+        settings.database_url,
+        settings.jwt_secret,
+        port=settings.api_port,
+        allowed_origin=settings.allowed_origin,
+    )
+    api_thread = threading.Thread(target=api.serve_forever, daemon=True)
+    api_thread.start()
     try:
         worker.run(stop_event=stop_event)
     except KeyboardInterrupt:
         logger.info("Worker interrupted by user.")
     finally:
         worker.close()
+        api.shutdown()
+        api.server_close()
+        api_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
     main()
-
-

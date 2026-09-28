@@ -1,12 +1,5 @@
 """NearHive Python Discovery package."""
 
-from nearhive_discovery.client import (
-    AuthenticationError,
-    IngestionClient,
-    IngestionError,
-    PayloadTooLargeError,
-    ValidationError,
-)
 from nearhive_discovery.classify import (
     RULE_VERSION,
     Classification,
@@ -44,7 +37,6 @@ from nearhive_discovery.worker import Source, Worker
 __all__ = [
     "CONTRACT_VERSION",
     "RULE_VERSION",
-    "AuthenticationError",
     "BatchRecordResult",
     "BatchResult",
     "Classification",
@@ -54,15 +46,11 @@ __all__ = [
     "DiscoverySourceRun",
     "DiscoveryStatus",
     "EvidenceBatch",
-    "IngestionClient",
-    "IngestionError",
-    "PayloadTooLargeError",
     "PresenceType",
     "PublicationState",
     "Settings",
     "Source",
     "TechnicalJobEvidence",
-    "ValidationError",
     "WorkArrangement",
     "Worker",
     "batch_to_dict",

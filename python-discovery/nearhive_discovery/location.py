@@ -114,23 +114,23 @@ async def resolve_job_location(
 ) -> TechnicalJobEvidence:
     meta = dict(job.metadata)
 
-    # 1. Existing structured coordinates are preserved
-    if job.lat is not None and job.lng is not None:
-        meta["location_resolution"] = "structured"
-        return replace(job, metadata=meta)
-
-    # 2. Remote jobs are never geocoded
+    # Remote jobs never have a spatial location, even when a source supplies coordinates.
     if job.work_arrangement == WorkArrangement.REMOTE:
         meta["location_resolution"] = "unresolved"
         return replace(job, lat=None, lng=None, metadata=meta)
 
-    # 3. Missing raw location or resolver
+    # Existing structured coordinates are preserved for local and hybrid jobs.
+    if job.lat is not None and job.lng is not None:
+        meta["location_resolution"] = "structured"
+        return replace(job, metadata=meta)
+
+    # Missing raw location or resolver
     raw = (job.location_raw or "").strip()
     if not raw or resolver is None:
         meta["location_resolution"] = "unresolved"
         return replace(job, lat=None, lng=None, metadata=meta)
 
-    # 4. Resolve coordinates
+    # Resolve coordinates
     coords = await resolver.resolve(raw)
     if coords is not None:
         lat, lng = coords

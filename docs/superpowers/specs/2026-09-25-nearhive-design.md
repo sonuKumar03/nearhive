@@ -1,5 +1,12 @@
 # NearHive — Design Specification
 
+> ⚠️ **SUPERSEDED as implementation guidance (2026-09-28).** This full-stack design
+> assumes a Go scraper, verifier pipeline, and canonical Go ingestion. Those
+> responsibilities now belong to Python, and Go serves authentication and read-only
+> queries. Product/schema concepts remain informative, but do not implement the Go
+> scraping or verifier pipeline from this document. See the
+> [Python-Owned Discovery and Go Read API Plan](../plans/2026-09-28-python-owned-discovery-architecture.md).
+
 > **Project:** NearHive 🐝 — Multi-source tech company locator
 > **Date:** 2026-09-25
 > **Status:** Approved for implementation

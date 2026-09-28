@@ -1,5 +1,11 @@
 # Python Company Discovery and Job Enrichment Design
 
+> ⚠️ **SUPERSEDED (2026-09-28).** This design sends evidence through Go for validation,
+> merging, and persistence. Python now owns validation, deduplication, and canonical
+> writes directly, and Go is read-only for discovery data. This document is kept for
+> history. See the
+> [Python-Owned Discovery and Go Read API Plan](../plans/2026-09-28-python-owned-discovery-architecture.md).
+
 **Status:** Approved design, awaiting implementation-plan review  
 **Date:** 2026-09-27
 

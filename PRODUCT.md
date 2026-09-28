@@ -40,8 +40,8 @@ NearHive combines verified physical company presence, current job evidence, work
 
 ## Evidence on Hand
 
-- Existing PostgreSQL/PostGIS company, location, user, search-history, discovery-job, source-run, sighting, and technical-job tables.
-- Existing Go canonical ingestion and nearby-company search.
+- Existing PostgreSQL/PostGIS company, office location, job location, user, discovery-job, source-run, sighting, and technical-job tables.
+- Existing Go read API for nearby company and job search, plus Python-owned discovery that writes canonical records directly.
 - Existing Python discovery adapters for OSM, configured directories, company sites, JSON-LD, Greenhouse, and Lever.
 - Existing deterministic technical-role and work-arrangement classification.
 - No existing saved-company, review, compensation, interview-experience, interview-question, moderation, or reputation datasets.

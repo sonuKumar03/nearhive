@@ -1,5 +1,11 @@
 # NearHive — Standalone Crawler Service & Infrastructure Specification
 
+> ⚠️ **SUPERSEDED (2026-09-28).** The standalone Go crawler service and its
+> infrastructure have been retired. Python owns discovery with a single lease-queue
+> worker model; Go serves authentication and read-only queries. This document is kept
+> for history. See the
+> [Python-Owned Discovery and Go Read API Plan](../plans/2026-09-28-python-owned-discovery-architecture.md).
+
 **Date:** 2026-09-26  
 **Status:** Approved / Spec  
 **Target Architecture:** Decoupled Microservices (API Server + Standalone Crawler Worker + Web Frontend + PostGIS)  

@@ -1,6 +1,6 @@
 # Python-Owned Discovery and Go Read API Plan
 
-**Status:** Local Python-owned cutover implemented; deployment configuration remains to be reviewed before any deployment  
+**Status:** Local Python-owned cutover implemented and committed; deployment manifests (Compose, Railway, env example) reviewed and wired. Live platform environment variables and secrets are still to be set before deployment  
 **Date:** 2026-09-28
 
 ## Current implementation checkpoint

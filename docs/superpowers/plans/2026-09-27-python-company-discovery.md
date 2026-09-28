@@ -1,5 +1,11 @@
 # Python Company Discovery Implementation Plan
 
+> ⚠️ **SUPERSEDED (2026-09-28).** This plan routes evidence through Go for validation,
+> merging, and persistence. That bridge has been removed: Python now owns discovery,
+> validation, deduplication, and canonical writes directly, and Go is read-only for
+> discovery data. This document is kept for history. See the
+> [Python-Owned Discovery and Go Read API Plan](2026-09-28-python-owned-discovery-architecture.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a locally runnable Python worker that discovers nearby companies from public sources, enriches them with technical jobs from the previous 14 days, and sends evidence through Go without modifying the existing Go crawler packages.

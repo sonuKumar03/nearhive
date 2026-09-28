@@ -1,5 +1,10 @@
 # Location-Based Job Discovery Upgrade Implementation Plan
 
+> 🟠 **PARTIALLY SUPERSEDED (2026-09-28).** The job-location and radius rules here
+> remain valid, but ownership moved: Python writes evidence directly and Go no longer
+> validates or ingests. Any Go ingestion/validation steps in this plan are superseded by
+> the [Python-Owned Discovery and Go Read API Plan](2026-09-28-python-owned-discovery-architecture.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the existing Python discovery worker into a location-first job engine that discovers employers around a requested coordinate, follows their public careers surfaces, and returns trustworthy recent technical jobs whose actual job location is inside the requested radius.

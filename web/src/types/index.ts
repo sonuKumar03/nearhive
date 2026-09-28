@@ -1,4 +1,4 @@
-export type DiscoveryStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+export type DiscoveryStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
 export type PresenceType = 'confirmed_office' | 'probable_office' | 'job_location_only';
 export type WorkArrangement = 'in_office' | 'hybrid' | 'remote' | 'unknown';
 export type PublicationState = 'posted_recently' | 'observed_recently' | 'stale';
@@ -144,50 +144,13 @@ export interface ClusterParams {
   k?: number;
 }
 
-export interface DiscoverySourceRun {
-  id: string;
-  discovery_job_id: string;
-  source: string;
-  source_family: string;
-  status: DiscoveryStatus;
-  attempts: number;
-  company_count: number;
-  job_count: number;
-  evidence_count: number;
-  error?: string;
-  duration_ms: number;
-  elapsed_seconds?: number;
-  duration_text?: string;
-  started_at?: string;
-  finished_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface DiscoveryJob {
   id: string;
-  user_id: string;
   status: DiscoveryStatus;
-  lat: number;
-  lng: number;
-  radius_km: number;
-  worker_id?: string;
-  lease_expires_at?: string;
-  last_heartbeat_at?: string;
-  attempts: number;
-  max_attempts: number;
-  error?: string;
-  company_count: number;
-  job_count: number;
-  evidence_count: number;
-  duration_ms?: number;
-  elapsed_seconds?: number;
-  duration_text?: string;
-  started_at?: string;
-  finished_at?: string;
-  created_at: string;
-  updated_at: string;
-  source_runs?: DiscoverySourceRun[];
+  lat?: number;
+  lng?: number;
+  radius_km?: number;
+  created_at?: string;
 }
 
 export interface TechnicalJobPosting {

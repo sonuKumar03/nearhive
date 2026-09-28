@@ -17,7 +17,7 @@ export function useDiscoveryJob(jobId: string | null) {
     enabled: !!jobId,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
-      return s === 'running' || s === 'pending' ? 2000 : false;
+      return s === 'in_progress' || s === 'queued' ? 2000 : false;
     },
   });
 
@@ -25,7 +25,7 @@ export function useDiscoveryJob(jobId: string | null) {
   useEffect(() => {
     if (!job) return;
 
-    const signature = `${job.id}:${job.status}:${job.company_count}:${job.job_count}:${job.evidence_count}`;
+    const signature = `${job.id}:${job.status}`;
 
     if (prevSignatureRef.current === null) {
       prevSignatureRef.current = signature;
@@ -56,29 +56,20 @@ export function useDiscoveryJobs() {
     queryFn: () => fetchApi<{ jobs: DiscoveryJob[] }>('/api/v1/discovery/jobs'),
     refetchInterval: (q) => {
       const jobs = q.state.data?.jobs || [];
-      const hasActive = jobs.some((j) => j.status === 'running' || j.status === 'pending');
+      const hasActive = jobs.some((j) => j.status === 'in_progress' || j.status === 'queued');
       return hasActive ? 2000 : 10000;
     },
   });
 
   const jobs = query.data?.jobs;
 
-  // Whenever a job's status updates or counters change, automatically invalidate caches
+  // Refresh search results when a run changes state.
   useEffect(() => {
     if (!jobs) return;
 
     const parts: string[] = [];
     for (const job of jobs) {
-      parts.push(
-        `dj:${job.id}:${job.status}:${job.company_count}:${job.job_count}:${job.evidence_count}`
-      );
-      if (job.source_runs) {
-        for (const sr of job.source_runs) {
-          parts.push(
-            `sr:${sr.id}:${sr.status}:${sr.company_count}:${sr.job_count}:${sr.evidence_count}`
-          );
-        }
-      }
+      parts.push(`${job.id}:${job.status}`);
     }
     const currentSignature = parts.join('|');
 
@@ -126,15 +117,11 @@ export function useCancelDiscovery() {
 
   return useMutation({
     mutationFn: (jobId: string) =>
-      fetchApi<{ message: string; job?: DiscoveryJob }>(`/api/v1/discovery/jobs/${jobId}/cancel`, {
+      fetchApi<DiscoveryJob>(`/api/v1/discovery/jobs/${jobId}/cancel`, {
         method: 'POST',
       }),
     onSuccess: (res, jobId) => {
-      if (res.job) {
-        queryClient.setQueryData(['discovery-job', jobId], res.job);
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['discovery-job', jobId] });
-      }
+      queryClient.setQueryData(['discovery-job', jobId], res);
       queryClient.invalidateQueries({ queryKey: ['discovery-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       queryClient.invalidateQueries({ queryKey: ['nearby-jobs'] });

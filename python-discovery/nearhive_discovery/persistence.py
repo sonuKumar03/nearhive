@@ -20,6 +20,11 @@ MAX_DESCRIPTION_EXCERPT = 2_000
 MAX_METADATA_BYTES = 64 * 1024
 VALID_WORK_ARRANGEMENTS = {"in_office", "hybrid", "remote", "unknown"}
 VALID_PUBLICATION_STATES = {"posted_recently", "observed_recently", "stale"}
+JOB_STATE_BY_PUBLICATION = {
+    "posted_recently": "open",
+    "observed_recently": "open",
+    "stale": "stale",
+}
 
 
 def _normalized_name(name: str) -> str:
@@ -323,14 +328,20 @@ class PostgresPersistence:
             else "(source, content_hash) WHERE content_hash IS NOT NULL AND source_job_id IS NULL"
         )
         with self.conn.cursor() as cur:
+            publication_state = getattr(
+                evidence.publication_state, "value", str(evidence.publication_state)
+            )
             cur.execute(
                 f"""INSERT INTO technical_job_postings (
                     company_id, discovery_job_id, source, source_family, source_job_id,
                     canonical_url, title, normalized_title, description_excerpt, content_hash,
                     work_arrangement, publication_state, posted_at, posted_at_confidence,
                     first_seen_at, last_seen_at, technical_classification, rule_version,
-                    classification_reasons, metadata
+                    classification_reasons, metadata,
+                    role_family_id, seniority, employment_type, state, activity_confidence
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    (SELECT id FROM role_families WHERE slug = 'engineering'),
                     %s, %s, %s, %s)
                 ON CONFLICT {conflict} DO UPDATE SET
                     company_id = EXCLUDED.company_id, discovery_job_id = EXCLUDED.discovery_job_id,
@@ -342,17 +353,23 @@ class PostgresPersistence:
                     posted_at_confidence = EXCLUDED.posted_at_confidence,
                     last_seen_at = EXCLUDED.last_seen_at, technical_classification = EXCLUDED.technical_classification,
                     rule_version = EXCLUDED.rule_version, classification_reasons = EXCLUDED.classification_reasons,
-                    metadata = EXCLUDED.metadata
+                    metadata = EXCLUDED.metadata,
+                    role_family_id = EXCLUDED.role_family_id, seniority = EXCLUDED.seniority,
+                    employment_type = EXCLUDED.employment_type, state = EXCLUDED.state,
+                    activity_confidence = EXCLUDED.activity_confidence
                 RETURNING id""",
                 (
                     company_id, self._discovery_job_id(batch.discovery_job_id), batch.source, batch.source_family,
                     source_job_id, evidence.canonical_url or None, evidence.title.strip(),
                     evidence.title.strip().casefold(), evidence.description_excerpt, digest,
                     getattr(evidence.work_arrangement, "value", str(evidence.work_arrangement)),
-                    getattr(evidence.publication_state, "value", str(evidence.publication_state)), evidence.posted_at,
+                    publication_state, evidence.posted_at,
                     evidence.posted_at_confidence, evidence.first_seen_at, evidence.last_seen_at,
                     evidence.technical_classification or "software_engineering", evidence.rule_version,
                     evidence.classification_reasons, Jsonb(evidence.metadata),
+                    "unknown", "unknown",
+                    JOB_STATE_BY_PUBLICATION.get(publication_state, "unknown"),
+                    evidence.posted_at_confidence,
                 ),
             )
             job_id = cur.fetchone()[0]
@@ -360,19 +377,32 @@ class PostgresPersistence:
                 cur.execute(
                     """INSERT INTO job_locations (
                         job_id, ordinal, location_raw, latitude, longitude,
-                        coordinate_source, confidence, first_seen_at, last_seen_at
-                    ) VALUES (%s, 0, %s, %s, %s, %s, %s, %s, %s)
+                        coordinate_source, confidence, location_kind, country_code,
+                        first_seen_at, last_seen_at
+                    ) VALUES (%s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id, ordinal) DO UPDATE SET
                         location_raw = EXCLUDED.location_raw,
-                        latitude = EXCLUDED.latitude,
-                        longitude = EXCLUDED.longitude,
-                        coordinate_source = EXCLUDED.coordinate_source,
-                        confidence = EXCLUDED.confidence,
+                        latitude = CASE
+                            WHEN job_locations.coordinate_source IN ('structured', 'provider')
+                            THEN job_locations.latitude ELSE EXCLUDED.latitude END,
+                        longitude = CASE
+                            WHEN job_locations.coordinate_source IN ('structured', 'provider')
+                            THEN job_locations.longitude ELSE EXCLUDED.longitude END,
+                        coordinate_source = CASE
+                            WHEN job_locations.coordinate_source IN ('structured', 'provider')
+                            THEN job_locations.coordinate_source ELSE EXCLUDED.coordinate_source END,
+                        confidence = CASE
+                            WHEN job_locations.coordinate_source IN ('structured', 'provider')
+                            THEN job_locations.confidence ELSE EXCLUDED.confidence END,
+                        location_kind = EXCLUDED.location_kind,
+                        country_code = EXCLUDED.country_code,
                         last_seen_at = EXCLUDED.last_seen_at""",
                     (
                         job_id, evidence.location_raw or "", evidence.lat, evidence.lng,
                         "provider" if evidence.lat is not None else "unknown",
                         1.0 if evidence.lat is not None else 0.0,
+                        "stated_job_location" if evidence.location_raw else "inferred",
+                        "IN",
                         evidence.first_seen_at, evidence.last_seen_at,
                     ),
                 )

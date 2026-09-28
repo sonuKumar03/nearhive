@@ -578,20 +578,35 @@ def test_remote_eligibility_scopes_written() -> None:
             persistence.persist(batch)
             with psycopg.connect(database_url) as conn:
                 rows = conn.execute(
-                    """SELECT j.source_job_id, e.scope_type, e.scope_code, e.is_active, e.confidence
+                    """SELECT j.source_job_id, e.scope_type, e.scope_code, e.is_active,
+                              e.confidence, e.source_record_id
                        FROM job_remote_eligibility e
                        JOIN technical_job_postings j ON j.id = e.job_id
                        WHERE j.source = %s
                        ORDER BY j.source_job_id, e.scope_type, e.scope_code""",
                     (source,),
                 ).fetchall()
-            assert [
-                row for row in rows if row[0] == f"global-{suffix}"
-            ] == [(f"global-{suffix}", "global", "GLOBAL", True, 0.8)]
-            assert [
-                row for row in rows if row[0] == f"india-{suffix}"
-            ] == [(f"india-{suffix}", "country", "IN", True, 0.8)]
+                links = conn.execute(
+                    """SELECT j.source_job_id, jsl.source_record_id
+                       FROM job_source_links jsl
+                       JOIN technical_job_postings j ON j.id = jsl.job_id
+                       WHERE j.source = %s""",
+                    (source,),
+                ).fetchall()
+            link_by_job = dict(links)
+            global_rows = [row for row in rows if row[0] == f"global-{suffix}"]
+            india_rows = [row for row in rows if row[0] == f"india-{suffix}"]
+            assert [row[:5] for row in global_rows] == [
+                (f"global-{suffix}", "global", "GLOBAL", True, 0.8)
+            ]
+            assert [row[:5] for row in india_rows] == [
+                (f"india-{suffix}", "country", "IN", True, 0.8)
+            ]
             assert [row for row in rows if row[0] == f"empty-{suffix}"] == []
+            assert all(
+                row[5] is not None and row[5] == link_by_job[row[0]]
+                for row in global_rows + india_rows
+            )
 
             persistence.persist(
                 replace(batch, jobs=[replace(batch.jobs[0], remote_scopes=[])])

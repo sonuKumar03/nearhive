@@ -185,7 +185,6 @@ class PostgresPersistence:
                 company_results.append(BatchRecordResult(index=index, status="accepted"))
             for index, evidence in enumerate(batch.jobs):
                 company_id = self._upsert_company(evidence.company_name, evidence.company_domain)
-                job_id = self._upsert_job(batch, evidence, company_id)
                 record_id = self._upsert_source_record(
                     data_source_id,
                     ingestion_run_id,
@@ -194,6 +193,7 @@ class PostgresPersistence:
                     evidence.canonical_url or None,
                     evidence.to_dict(),
                 )
+                job_id = self._upsert_job(batch, evidence, company_id, record_id)
                 self._link_job_record(job_id, record_id)
                 job_results.append(BatchRecordResult(index=index, status="accepted"))
             self._complete_ingestion_run(
@@ -336,7 +336,13 @@ class PostgresPersistence:
                 ),
             )
 
-    def _upsert_job(self, batch: EvidenceBatch, evidence: Any, company_id: str) -> str:
+    def _upsert_job(
+        self,
+        batch: EvidenceBatch,
+        evidence: Any,
+        company_id: str,
+        source_record_id: str | None = None,
+    ) -> str:
         assert self.conn is not None
         source_job_id = evidence.source_job_id
         digest = evidence.content_hash or _content_hash(
@@ -438,12 +444,12 @@ class PostgresPersistence:
                         """INSERT INTO job_remote_eligibility (
                             job_id, scope_type, scope_code, source_record_id,
                             confidence, is_active, last_seen_at
-                        ) VALUES (%s, %s, %s, NULL, 0.8, true, clock_timestamp())
+                        ) VALUES (%s, %s, %s, %s, 0.8, true, clock_timestamp())
                         ON CONFLICT (job_id, scope_type, scope_code) DO UPDATE SET
                             is_active = true,
                             last_seen_at = EXCLUDED.last_seen_at""",
                         [
-                            (job_id, scope_type, scope_code)
+                            (job_id, scope_type, scope_code, source_record_id)
                             for scope_type, scope_code in scope_rows
                         ],
                     )

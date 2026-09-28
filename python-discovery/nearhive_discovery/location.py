@@ -137,7 +137,7 @@ async def resolve_job_location(
         meta["location_resolution"] = "geocoded"
         if resolver.provider_name:
             meta["location_provider"] = resolver.provider_name
-        return replace(job, lat=lat, lng=lng, metadata=meta)
+        return replace(job, lat=lat, lng=lng, coordinate_source="inferred", metadata=meta)
 
     meta["location_resolution"] = "unresolved"
     return replace(job, lat=None, lng=None, metadata=meta)

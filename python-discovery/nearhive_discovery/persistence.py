@@ -402,6 +402,9 @@ class PostgresPersistence:
                 ),
             )
             job_id = cur.fetchone()[0]
+            coordinate_source = evidence.coordinate_source
+            if coordinate_source in (None, "", "unknown"):
+                coordinate_source = "provider" if evidence.lat is not None else "unknown"
             if evidence.location_raw or evidence.lat is not None:
                 cur.execute(
                     """INSERT INTO job_locations (
@@ -428,7 +431,7 @@ class PostgresPersistence:
                         last_seen_at = EXCLUDED.last_seen_at""",
                     (
                         job_id, evidence.location_raw or "", evidence.lat, evidence.lng,
-                        "provider" if evidence.lat is not None else "unknown",
+                        coordinate_source,
                         1.0 if evidence.lat is not None else 0.0,
                         "stated_job_location" if evidence.location_raw else "inferred",
                         "IN",
@@ -457,6 +460,10 @@ class PostgresPersistence:
                     cur.execute(
                         "DELETE FROM job_remote_eligibility WHERE job_id = %s", (job_id,)
                     )
+            else:
+                cur.execute(
+                    "DELETE FROM job_remote_eligibility WHERE job_id = %s", (job_id,)
+                )
             return str(job_id)
 
     def _register_source(self, source: str, source_family: str) -> str:

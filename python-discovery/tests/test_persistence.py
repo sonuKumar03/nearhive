@@ -532,6 +532,149 @@ def test_inferred_does_not_overwrite_provider() -> None:
     not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
     reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
 )
+def test_job_coordinate_source_uses_evidence() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"coord-source-test-{suffix}"
+    domain = f"{suffix}.example"
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Coord Source Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[
+            TechnicalJobEvidence(
+                company_name="Coord Source Test Company",
+                company_domain=domain,
+                title="Software Engineer",
+                source_job_id=suffix,
+                canonical_url=f"https://{domain}/jobs/{suffix}",
+                location_raw="Whitefield, Bengaluru",
+                lat=12.98,
+                lng=77.60,
+                coordinate_source="inferred",
+                technical_classification="software",
+            )
+        ],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+
+        with psycopg.connect(database_url) as conn:
+            location_row = conn.execute(
+                """SELECT jl.latitude, jl.longitude, jl.coordinate_source FROM job_locations jl
+                   JOIN technical_job_postings j ON j.id = jl.job_id
+                   WHERE j.source = %s AND j.source_job_id = %s""",
+                (source, suffix),
+            ).fetchone()
+
+        assert location_row == (12.98, 77.60, "inferred")
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
+def test_remote_to_nonremote_clears_eligibility() -> None:
+    database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
+    suffix = uuid.uuid4().hex
+    source = f"remote-to-office-test-{suffix}"
+    domain = f"{suffix}.example"
+
+    def job(work_arrangement: WorkArrangement) -> TechnicalJobEvidence:
+        return TechnicalJobEvidence(
+            company_name="Remote To Office Test Company",
+            company_domain=domain,
+            title="Software Engineer",
+            source_job_id=suffix,
+            canonical_url=f"https://{domain}/jobs/{suffix}",
+            work_arrangement=work_arrangement,
+            remote_scopes=["IN"] if work_arrangement == WorkArrangement.REMOTE else [],
+            technical_classification="software",
+        )
+
+    batch = EvidenceBatch(
+        contract_version=1,
+        discovery_job_id=uuid.uuid4(),
+        source=source,
+        source_family="official_site",
+        observed_at=datetime.now(timezone.utc),
+        companies=[
+            CompanyEvidence(
+                name="Remote To Office Test Company",
+                source_record_id=suffix,
+                domain=domain,
+                address="Test Road",
+                lat=12.97,
+                lng=77.59,
+            )
+        ],
+        jobs=[job(WorkArrangement.REMOTE)],
+    )
+
+    try:
+        with PostgresPersistence(database_url) as persistence:
+            persistence.persist(batch)
+            with psycopg.connect(database_url) as conn:
+                remote_count = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s""",
+                    (source, suffix),
+                ).fetchone()[0]
+            assert remote_count == 1
+            persistence.persist(replace(batch, jobs=[job(WorkArrangement.IN_OFFICE)]))
+            with psycopg.connect(database_url) as conn:
+                remaining = conn.execute(
+                    """SELECT count(*) FROM job_remote_eligibility e
+                       JOIN technical_job_postings j ON j.id = e.job_id
+                       WHERE j.source = %s AND j.source_job_id = %s AND e.is_active""",
+                    (source, suffix),
+                ).fetchone()[0]
+            assert remaining == 0
+    finally:
+        with psycopg.connect(database_url) as conn:
+            conn.execute(
+                "DELETE FROM source_records WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute(
+                "DELETE FROM ingestion_runs WHERE data_source_id IN (SELECT id FROM data_sources WHERE slug = %s)",
+                (source,),
+            )
+            conn.execute("DELETE FROM data_sources WHERE slug = %s", (source,))
+            conn.execute("DELETE FROM companies WHERE domain = %s", (domain,))
+
+
+@pytest.mark.skipif(
+    not os.getenv("NEARHIVE_TEST_DATABASE_URL"),
+    reason="set NEARHIVE_TEST_DATABASE_URL to a migrated disposable database",
+)
 def test_remote_eligibility_scopes_written() -> None:
     database_url = os.environ["NEARHIVE_TEST_DATABASE_URL"]
     suffix = uuid.uuid4().hex

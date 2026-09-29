@@ -1,5 +1,7 @@
 # Company Intelligence Phase 1 — Provenance and Canonical Dataset Implementation Plan
 
+> ✅ **IMPLEMENTED (2026-09-28, PR #30).** Retained as the execution record; do not re-execute.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every canonical company, location, and job row source-traceable provenance (`data_sources` → `ingestion_runs` → `source_records` → entity links), extend company identity (aliases, domains), add role/skill taxonomy, generalize job fields, extend `job_locations`, and add explicit remote eligibility.

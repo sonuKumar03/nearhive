@@ -773,7 +773,7 @@ Phase 1 and Phase 2 deliver the primary product goal. Phase 3 must precede accep
 
 After this specification is approved, create four implementation plans in order:
 
-1. Canonical company/job/provenance migration and ingestion plan.
+1. Canonical company/job/provenance migration and ingestion plan. ✅ **IMPLEMENTED (2026-09-28, PR #30)** — provenance registry, company identity/aliases/domains, role/skill taxonomy, canonical job fields, enriched job locations, remote eligibility, transactional provenance writes.
 2. Hiring classifications, projection refresh, and candidate-query plan.
 3. User preferences, unique identity, moderation, and privacy plan.
 4. Reviews, compensation, interview intelligence, and aggregate-projection plan.

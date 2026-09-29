@@ -43,10 +43,10 @@ export default function Sidebar({
   return (
     <aside
       aria-label="Discovered tech companies and jobs list"
-      className={`w-full md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 shrink-0 h-full ${className}`}
+      className={`w-full md:w-[420px] bg-[#0d0d11]/95 border-r border-white/[0.08] backdrop-blur-md flex flex-col z-10 shrink-0 h-full ${className}`}
     >
       {/* Search & Mode Header */}
-      <div className="p-3.5 border-b border-slate-800/80 bg-slate-900/60 space-y-2.5 shrink-0">
+      <div className="p-3.5 border-b border-white/[0.08] bg-[#131318]/70 space-y-2.5 shrink-0">
         {/* Two-tab segmented mode toggle using Design System primitive */}
         <SegmentedControl
           value={activeMode}

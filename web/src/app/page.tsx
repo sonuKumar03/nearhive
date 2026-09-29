@@ -210,7 +210,7 @@ export default function HomePage() {
   })();
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#09090b] overflow-hidden">
       {/* Geolocation Feedback Toast */}
       {geoNotice && (
         <div
@@ -231,7 +231,7 @@ export default function HomePage() {
           <button
             onClick={() => setGeoNotice(null)}
             aria-label="Dismiss notification"
-            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors ml-1 cursor-pointer"
+            className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition-colors ml-1 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -239,11 +239,11 @@ export default function HomePage() {
       )}
 
       {/* Top Header */}
-      <header className="h-14 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-3 md:px-4 flex items-center justify-between shrink-0 z-20">
+      <header className="h-14 border-b border-white/[0.08] bg-[#121216]/90 backdrop-blur-md px-3 md:px-4 flex items-center justify-between shrink-0 z-20">
         <div className="flex items-center gap-2 md:gap-3">
           {/* Modern Geometric Logo & Typography */}
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-slate-800/90 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/10 shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shadow-lg shadow-indigo-500/10 shrink-0">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -251,18 +251,18 @@ export default function HomePage() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="w-4 h-4 text-amber-400"
+                className="w-4 h-4 text-indigo-400"
               >
-                <polygon points="12 2 20.66 7 20.66 17 12 22 3.34 17 3.34 7 12 2" fill="rgba(245, 158, 11, 0.15)" stroke="currentColor" />
+                <polygon points="12 2 20.66 7 20.66 17 12 22 3.34 17 3.34 7 12 2" fill="rgba(99, 102, 241, 0.2)" stroke="currentColor" />
                 <circle cx="12" cy="12" r="2.5" fill="currentColor" />
               </svg>
             </div>
-            <span className="font-bold text-base tracking-tight text-slate-100 flex items-center">
-              Near<span className="text-amber-400">Hive</span>
+            <span className="font-bold text-base tracking-tight text-white flex items-center">
+              Near<span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Hive</span>
             </span>
           </div>
 
-          <div className="h-4 w-px bg-slate-800 hidden sm:block mx-0.5 md:mx-1" />
+          <div className="h-4 w-px bg-white/[0.08] hidden sm:block mx-0.5 md:mx-1" />
 
           {/* Current Location Button - only active when geolocation is active */}
           <Button
@@ -331,15 +331,15 @@ export default function HomePage() {
               className="hidden md:flex cursor-pointer transition-transform hover:scale-105"
               title="View discovery runs"
             >
-              <Badge variant="amber" pulsing size="md" icon={<RefreshCw className="w-3 h-3 animate-spin" />}>
+              <Badge variant="indigo" pulsing size="md" icon={<RefreshCw className="w-3 h-3 animate-spin" />}>
                 <span className="font-semibold">{runningDiscovery.length} Discovery Active</span>
               </Badge>
             </button>
           )}
 
           {/* Radius Slider with accessible label */}
-          <div className="flex items-center gap-1.5 md:gap-2 bg-slate-950/80 px-2 py-1 md:px-2.5 rounded-xl border border-slate-800">
-            <label htmlFor="header-radius-slider" className="text-xs text-slate-400 font-medium hidden sm:inline">
+          <div className="flex items-center gap-1.5 md:gap-2 bg-[#09090b] px-2 py-1 md:px-2.5 rounded-xl border border-white/[0.08]">
+            <label htmlFor="header-radius-slider" className="text-xs text-zinc-400 font-medium hidden sm:inline">
               Radius:
             </label>
             <input
@@ -350,9 +350,9 @@ export default function HomePage() {
               max={30}
               value={radiusKm}
               onChange={(e) => setRadiusKm(Number(e.target.value))}
-              className="w-16 sm:w-20 md:w-28 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+              className="w-16 sm:w-20 md:w-28 accent-indigo-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
             />
-            <span className="text-xs font-mono font-bold text-amber-400 min-w-[32px] md:min-w-[36px]">{radiusKm} km</span>
+            <span className="text-xs font-mono font-bold text-indigo-400 min-w-[32px] md:min-w-[36px]">{radiusKm} km</span>
           </div>
 
           <Button

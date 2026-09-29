@@ -39,17 +39,17 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function formatArrangement(arr: WorkArrangement): { text: string; variant: 'emerald' | 'sky' | 'slate' | 'amber' } {
+function formatArrangement(arr: WorkArrangement): { text: string; variant: 'success' | 'info' | 'secondary' | 'warning' } {
   switch (arr) {
     case 'in_office':
-      return { text: 'In-Office', variant: 'emerald' };
+      return { text: 'In-Office', variant: 'success' };
     case 'hybrid':
-      return { text: 'Hybrid', variant: 'sky' };
+      return { text: 'Hybrid', variant: 'info' };
     case 'remote':
-      return { text: 'Remote', variant: 'amber' };
+      return { text: 'Remote', variant: 'warning' };
     case 'unknown':
     default:
-      return { text: 'Unknown', variant: 'slate' };
+      return { text: 'Unknown', variant: 'secondary' };
   }
 }
 

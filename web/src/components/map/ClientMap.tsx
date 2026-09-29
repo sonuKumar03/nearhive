@@ -66,10 +66,14 @@ export default function ClientMap({
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // OpenStreetMap tile layer styled with sleek dark CSS filter in dark-map-tiles class
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-      className: 'dark-tiles',
+      className: 'dark-map-tiles',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+      keepBuffer: 16,
+      updateWhenIdle: false,
+      updateWhenZooming: true,
     }).addTo(map);
 
     const markerLayer = L.layerGroup().addTo(map);
@@ -79,8 +83,8 @@ export default function ClientMap({
       className: 'epicenter-marker',
       html: `
         <div role="button" aria-label="Search center location, draggable marker" class="relative flex items-center justify-center w-8 h-8 -ml-4 -mt-4 cursor-grab active:cursor-grabbing">
-          <div class="absolute w-8 h-8 rounded-full bg-amber-500/30 epicenter-pulse"></div>
-          <div class="w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950 shadow-lg shadow-amber-500/50"></div>
+          <div class="absolute w-8 h-8 rounded-full bg-indigo-500/30 epicenter-pulse"></div>
+          <div class="w-4 h-4 rounded-full bg-indigo-500 border-2 border-[#09090b] shadow-lg shadow-indigo-500/50"></div>
         </div>
       `,
       iconSize: [32, 32],
@@ -105,11 +109,11 @@ export default function ClientMap({
 
     const circle = L.circle([center.lat, center.lng], {
       radius: radiusKm * 1000,
-      color: '#f59e0b',
+      color: '#6366f1',
       weight: 1.5,
       opacity: 0.8,
-      fillColor: '#f59e0b',
-      fillOpacity: 0.06,
+      fillColor: '#6366f1',
+      fillOpacity: 0.08,
     }).addTo(map);
 
     epicenterRef.current = epicenter;
@@ -150,7 +154,7 @@ export default function ClientMap({
         const icon = L.divIcon({
           className: 'cluster-pin',
           html: `
-            <div role="button" aria-label="Cluster of ${c.count} companies, click to zoom" class="flex items-center justify-center rounded-full shadow-2xl border-2 border-amber-400 bg-amber-500/90 text-slate-950 font-mono font-black transition-transform hover:scale-110 cursor-pointer" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
+            <div role="button" aria-label="Cluster of ${c.count} companies, click to zoom" class="flex items-center justify-center rounded-full shadow-2xl border-2 border-indigo-400 bg-indigo-600/90 text-white font-mono font-black transition-transform hover:scale-110 cursor-pointer shadow-indigo-500/30" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
               ${c.count}
             </div>
           `,
@@ -181,11 +185,11 @@ export default function ClientMap({
             <div role="button" aria-label="${escapeHtml(comp.name)}, ${conf}% verified" class="relative flex items-center justify-center cursor-pointer transition-all ${
               isSelected ? 'scale-125 z-40' : 'hover:scale-110 z-10'
             }">
-              ${isSelected ? '<div class="absolute -inset-2.5 rounded-2xl bg-amber-400/50 animate-ping pointer-events-none"></div>' : ''}
+              ${isSelected ? '<div class="absolute -inset-2.5 rounded-2xl bg-indigo-500/40 animate-ping pointer-events-none"></div>' : ''}
               <div class="w-7 h-7 rounded-xl shadow-lg border-2 ${
                 isSelected
-                  ? 'border-amber-300 ring-2 ring-amber-400/60 shadow-amber-500/50'
-                  : 'border-slate-950/80 shadow-black/40'
+                  ? 'border-indigo-400 ring-2 ring-indigo-400/60 shadow-indigo-500/50'
+                  : 'border-[#09090b] shadow-black/60'
               } flex items-center justify-center text-xs text-white" style="background-color: ${markerColor}">
                 <span>🏢</span>
               </div>
@@ -205,12 +209,12 @@ export default function ClientMap({
 
         marker.bindPopup(`
           <div style="font-family: inherit; min-width: 170px; padding: 2px;">
-            <div style="font-weight: 700; font-size: 13px; color: #f8fafc; line-height: 1.3;">${escapeHtml(comp.name)}</div>
-            ${comp.industry ? `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">${escapeHtml(comp.industry)}</div>` : ''}
-            <div style="font-size: 11px; color: #cbd5e1; margin-top: 5px; line-height: 1.3;">${escapeHtml(comp.address || 'Office location')}</div>
-            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; font-size: 10px;">
-              <span style="font-weight: 700; color: #34d399;">✓ ${conf}% Verified</span>
-              <span style="color: #94a3b8; font-family: monospace;">${((comp.distance_meters || 0) / 1000).toFixed(1)} km</span>
+            <div style="font-weight: 700; font-size: 13px; color: #f4f4f5; line-height: 1.3;">${escapeHtml(comp.name)}</div>
+            ${comp.industry ? `<div style="font-size: 10px; color: #a1a1aa; margin-top: 2px;">${escapeHtml(comp.industry)}</div>` : ''}
+            <div style="font-size: 11px; color: #d4d4d8; margin-top: 5px; line-height: 1.3;">${escapeHtml(comp.address || 'Office location')}</div>
+            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; font-size: 10px;">
+              <span style="font-weight: 700; color: #10b981;">✓ ${conf}% Verified</span>
+              <span style="color: #a1a1aa; font-family: monospace;">${((comp.distance_meters || 0) / 1000).toFixed(1)} km</span>
             </div>
           </div>
         `, {
@@ -218,25 +222,27 @@ export default function ClientMap({
           className: 'company-leaflet-popup',
         });
 
-        marker.on('click', () => onSelectCompanyRef.current(comp));
-        const markerKey = `${comp.id}-${comp.location_id}`;
-        markerMapRef.current.set(markerKey, marker);
+        marker.on('click', () => {
+          onSelectCompanyRef.current(comp);
+        });
+
         markerLayerRef.current?.addLayer(marker);
+        markerMapRef.current.set(`${comp.id}_${comp.location_id}`, marker);
       });
     }
-  }, [companies, clusters, isClusterMode, selectedCompany?.id, selectedCompany?.location_id]);
+  }, [companies, clusters, isClusterMode, selectedCompany]);
 
-  // When a company is selected (e.g. from the sidebar), fly to it and open its popup
   useEffect(() => {
-    if (!selectedCompany || !mapRef.current || isClusterMode) return;
-    const markerKey = `${selectedCompany.id}-${selectedCompany.location_id}`;
-    const marker = markerMapRef.current.get(markerKey);
+    if (!selectedCompany || isClusterMode) return;
+    const marker = markerMapRef.current.get(
+      `${selectedCompany.id}_${selectedCompany.location_id}`
+    );
 
-    if (selectedCompany.lat && selectedCompany.lng) {
-      mapRef.current.flyTo(
+    if (mapRef.current && selectedCompany.lat && selectedCompany.lng) {
+      mapRef.current.setView(
         [selectedCompany.lat, selectedCompany.lng],
-        Math.max(mapRef.current.getZoom(), 15),
-        { animate: true, duration: 0.8 }
+        Math.max(mapRef.current.getZoom(), 14),
+        { animate: true }
       );
     }
 
@@ -247,5 +253,5 @@ export default function ClientMap({
     }
   }, [selectedCompany, isClusterMode]);
 
-  return <div ref={mapContainerRef} className="w-full h-full relative z-0" />;
+  return <div ref={mapContainerRef} className="w-full h-full relative z-0 bg-[#09090b]" />;
 }

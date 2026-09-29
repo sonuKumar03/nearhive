@@ -39,12 +39,12 @@ export const Slider: React.FC<SliderProps> = ({
       {(label || badgeText) && (
         <div className="flex items-center justify-between">
           {label && (
-            <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
               {label}
             </label>
           )}
           {badgeText && (
-            <span className="text-xs font-mono font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+            <span className="text-xs font-mono font-semibold text-primary-text bg-primary-subtle px-2.5 py-0.5 rounded-full border border-primary/30">
               {badgeText}
             </span>
           )}
@@ -63,8 +63,8 @@ export const Slider: React.FC<SliderProps> = ({
                 className={cn(
                   'px-3 py-1.5 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer',
                   isActive
-                    ? 'border-amber-500/80 bg-amber-500/15 text-amber-300 font-semibold shadow-sm'
-                    : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    ? 'border-primary bg-primary-subtle text-primary-text font-semibold shadow-sm'
+                    : 'border-border-default bg-surface-card/60 text-zinc-400 hover:bg-surface-overlay hover:text-zinc-200'
                 )}
               >
                 <div>{preset.label}</div>
@@ -83,11 +83,11 @@ export const Slider: React.FC<SliderProps> = ({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg mt-1"
+        className="w-full accent-primary cursor-pointer h-1.5 bg-surface-elevated rounded-lg mt-1"
       />
 
       {scaleLabels && (
-        <div className="flex justify-between text-[11px] text-slate-500 font-medium">
+        <div className="flex justify-between text-[11px] text-zinc-500 font-medium">
           <span>{scaleLabels[0]}</span>
           <span>{scaleLabels[1]}</span>
           <span>{scaleLabels[2]}</span>

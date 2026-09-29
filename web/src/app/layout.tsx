@@ -1,6 +1,19 @@
 import type { Metadata } from 'next';
+import { Inter, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './providers';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'NearHive — Scalable Tech Company Locator & Verification Engine',
@@ -18,8 +31,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark h-full">
-      <body className="h-full bg-slate-950 text-slate-100 antialiased overflow-hidden">
+    <html lang="en" className={`dark h-full ${inter.variable} ${geistMono.variable}`}>
+      <body className="h-full bg-[#09090b] text-zinc-100 antialiased font-sans overflow-hidden">
         <Providers>{children}</Providers>
       </body>
     </html>

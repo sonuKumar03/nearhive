@@ -116,26 +116,25 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
   if (!company) return null;
 
   const conf = Math.round(company.confidence * 100);
-  const presenceType = company.presence_type || details?.company?.presence_type;
-  const presenceInfo = getPresenceDisplay(presenceType);
-  const technicalJobs = techJobsData?.technical_jobs || techJobsData?.jobs || [];
+  const presenceInfo = getPresenceDisplay(company.presence_type);
+  const technicalJobs = techJobsData?.technical_jobs ?? [];
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Company Details"
-      className="fixed inset-y-0 right-0 w-full sm:w-[460px] bg-slate-900 border-l border-slate-800/80 shadow-2xl z-50 flex flex-col backdrop-blur-xl animate-in slide-in-from-right duration-300"
+      className="fixed inset-y-0 right-0 w-full sm:w-[460px] bg-[#0d0d11] border-l border-white/[0.08] shadow-2xl z-50 flex flex-col backdrop-blur-xl animate-in slide-in-from-right duration-300"
     >
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="p-4 border-b border-white/[0.08] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+          <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
             <Building2 className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-slate-100">{company.name}</h3>
-            <span className="text-[10px] text-slate-400 font-mono">ID: {company.id.slice(0, 8)}...</span>
+            <h3 className="font-bold text-sm text-zinc-100">{company.name}</h3>
+            <span className="text-[10px] text-zinc-400 font-mono">ID: {company.id.slice(0, 8)}...</span>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -144,7 +143,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
               size="xs"
               variant="secondary"
               onClick={onFocusOnMap}
-              leftIcon={<MapPin className="w-3.5 h-3.5 text-amber-400" />}
+              leftIcon={<MapPin className="w-3.5 h-3.5 text-indigo-400" />}
               title="Show on map"
             >
               Map
@@ -153,7 +152,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
           <button
             onClick={onClose}
             aria-label="Close company details"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -163,7 +162,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5 [scrollbar-gutter:stable]">
         {/* Verification & Presence State Card */}
-        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+        <div className="p-3.5 rounded-xl bg-[#131318] border border-white/[0.08] space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
@@ -194,28 +193,28 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
         <div className="space-y-2.5">
           <h4 className="text-xs font-semibold text-slate-300">Company Overview</h4>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1">
-              <span className="text-[10px] text-slate-400">Industry</span>
-              <p className="font-medium text-slate-200">{company.industry || details?.company?.industry || 'Technology'}</p>
+            <div className="p-2.5 rounded-xl bg-[#131318] border border-white/[0.08] space-y-1">
+              <span className="text-[10px] text-zinc-400">Industry</span>
+              <p className="font-medium text-zinc-200">{company.industry || 'Technology'}</p>
             </div>
-            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1">
-              <span className="text-[10px] text-slate-400">Employees</span>
-              <p className="font-medium text-slate-200">{company.employee_count || details?.company?.employee_count || 'Not specified'}</p>
+            <div className="p-2.5 rounded-xl bg-[#131318] border border-white/[0.08] space-y-1">
+              <span className="text-[10px] text-zinc-400">Employees</span>
+              <p className="font-medium text-zinc-200">{company.employee_count || 'Not specified'}</p>
             </div>
           </div>
-          {(company.domain || details?.company?.domain) && (
-            <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between text-xs">
-              <span className="text-slate-400 flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-amber-400" />
+          {company.domain && (
+            <div className="p-2.5 rounded-xl bg-[#131318] border border-white/[0.08] flex items-center justify-between text-xs">
+              <span className="text-zinc-400 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-indigo-400" />
                 Domain
               </span>
               <a
-                href={`https://${company.domain || details?.company?.domain}`}
+                href={`https://${company.domain}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-amber-400 hover:underline font-mono"
+                className="text-indigo-400 hover:text-indigo-300 hover:underline font-mono"
               >
-                {company.domain || details?.company?.domain}
+                {company.domain}
               </a>
             </div>
           )}
@@ -224,23 +223,23 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
         {/* Recent Technical Jobs Section */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Briefcase className="w-3.5 h-3.5 text-sky-400" />
+            <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+              <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
               Recent Technical Jobs
-              <span className="text-[10px] text-slate-400 font-normal">
+              <span className="text-[10px] text-zinc-400 font-normal">
                 (Last 14 days)
               </span>
             </h4>
             {technicalJobs.length > 0 && (
-              <Badge variant="sky" size="sm">
+              <Badge variant="indigo" size="sm">
                 {technicalJobs.length} active
               </Badge>
             )}
           </div>
 
           {loadingTechJobs ? (
-            <div className="py-4 text-center text-xs text-slate-400 space-y-2">
-              <div className="w-5 h-5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto" />
+            <div className="py-4 text-center text-xs text-zinc-400 space-y-2">
+              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto" />
               <p>Loading technical job postings...</p>
             </div>
           ) : technicalJobs.length === 0 ? (

@@ -58,20 +58,20 @@ function getPresenceBadge(presence?: PresenceType, confidencePercent: number = 6
   if (presence === 'confirmed_office' || confidencePercent >= 80) {
     return {
       label: `Confirmed · ${confidencePercent}%`,
-      variant: 'emerald' as const,
+      variant: 'success' as const,
       Icon: CheckCircle2,
     };
   }
   if (presence === 'job_location_only') {
     return {
       label: `Hiring · ${confidencePercent}%`,
-      variant: 'sky' as const,
+      variant: 'info' as const,
       Icon: MapPin,
     };
   }
   return {
     label: `Probable · ${confidencePercent}%`,
-    variant: 'amber' as const,
+    variant: 'warning' as const,
     Icon: AlertCircle,
   };
 }

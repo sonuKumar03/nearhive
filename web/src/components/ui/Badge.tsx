@@ -1,8 +1,25 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
+export type BadgeVariant =
+  | 'primary'
+  | 'secondary'
+  | 'success'
+  | 'warning'
+  | 'destructive'
+  | 'info'
+  // Color aliases mapped to semantic roles
+  | 'indigo'
+  | 'violet'
+  | 'cyan'
+  | 'sky'
+  | 'emerald'
+  | 'amber'
+  | 'rose'
+  | 'slate';
+
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: 'amber' | 'emerald' | 'rose' | 'sky' | 'slate';
+  variant?: BadgeVariant;
   size?: 'sm' | 'md';
   pulsing?: boolean;
   icon?: React.ReactNode;
@@ -10,29 +27,50 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 export const Badge: React.FC<BadgeProps> = ({
   className,
-  variant = 'slate',
+  variant = 'secondary',
   size = 'sm',
   pulsing = false,
   icon,
   children,
   ...props
 }) => {
-  const baseStyles = 'inline-flex items-center font-medium rounded-full border transition-colors select-none';
+  const baseStyles = 'inline-flex items-center font-medium rounded-full border transition-colors select-none tracking-tight';
 
-  const variants = {
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    rose: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
-    sky: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
-    slate: 'bg-slate-800 text-slate-400 border-slate-700/60',
+  const variants: Record<BadgeVariant, string> = {
+    // Semantic Roles
+    primary: 'bg-primary-subtle text-primary-text border-primary/30',
+    secondary: 'bg-secondary text-secondary-foreground border-border-default',
+    success: 'bg-success-subtle text-success-text border-success/30',
+    warning: 'bg-warning-subtle text-warning-text border-warning/30',
+    destructive: 'bg-destructive-subtle text-destructive-text border-destructive/30',
+    info: 'bg-info-subtle text-info-text border-info/30',
+
+    // Visual Aliases mapped to semantic tokens
+    indigo: 'bg-primary-subtle text-primary-text border-primary/30',
+    violet: 'bg-primary-subtle text-primary-text border-primary/30',
+    cyan: 'bg-info-subtle text-info-text border-info/30',
+    sky: 'bg-info-subtle text-info-text border-info/30',
+    emerald: 'bg-success-subtle text-success-text border-success/30',
+    amber: 'bg-warning-subtle text-warning-text border-warning/30',
+    rose: 'bg-destructive-subtle text-destructive-text border-destructive/30',
+    slate: 'bg-secondary text-secondary-foreground border-border-default',
   };
 
-  const pulseDotColors = {
-    amber: 'bg-amber-400',
-    emerald: 'bg-emerald-400',
-    rose: 'bg-rose-400',
-    sky: 'bg-sky-400',
-    slate: 'bg-slate-400',
+  const pulseDotColors: Record<BadgeVariant, string> = {
+    primary: 'bg-primary',
+    secondary: 'bg-zinc-400',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    destructive: 'bg-destructive',
+    info: 'bg-info',
+    indigo: 'bg-primary',
+    violet: 'bg-primary',
+    cyan: 'bg-info',
+    sky: 'bg-info',
+    emerald: 'bg-success',
+    amber: 'bg-warning',
+    rose: 'bg-destructive',
+    slate: 'bg-zinc-400',
   };
 
   const sizes = {

@@ -19,10 +19,10 @@ export default function BackgroundScrapeWidget({ activeJobIds, onOpenDetails, on
   if (!active.length && !recent.length) return null;
 
   return (
-    <aside className="fixed bottom-6 right-6 z-40 flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-slate-900/95 p-3.5 text-sm text-slate-100 shadow-2xl shadow-black/60 backdrop-blur-md animate-in slide-in-from-bottom duration-300">
+    <aside className="fixed bottom-6 right-6 z-40 flex items-center gap-3 rounded-2xl border border-indigo-500/30 bg-[#121216]/95 p-3.5 text-sm text-zinc-100 shadow-2xl shadow-black/80 backdrop-blur-md animate-in slide-in-from-bottom duration-300">
       <div className="flex items-center gap-2.5">
         {active.length > 0 ? (
-          <Badge variant="amber" pulsing size="sm">
+          <Badge variant="indigo" pulsing size="sm">
             <span className="font-semibold">{active.length} active</span>
           </Badge>
         ) : (
@@ -34,14 +34,14 @@ export default function BackgroundScrapeWidget({ activeJobIds, onOpenDetails, on
         <button
           type="button"
           onClick={onOpenDetails}
-          className="font-semibold text-xs text-slate-200 hover:text-amber-400 flex items-center gap-1.5 transition-colors cursor-pointer"
+          className="font-semibold text-xs text-zinc-200 hover:text-indigo-400 flex items-center gap-1.5 transition-colors cursor-pointer"
         >
           <span>
             {active.length
               ? `Discovery running (${active.length} ${active.length === 1 ? 'task' : 'tasks'})`
               : 'Discovery complete'}
           </span>
-          <ArrowRight className="w-3 h-3 text-amber-400" />
+          <ArrowRight className="w-3 h-3 text-indigo-400" />
         </button>
       </div>
 
@@ -50,7 +50,7 @@ export default function BackgroundScrapeWidget({ activeJobIds, onOpenDetails, on
           type="button"
           onClick={onDismissAll}
           aria-label="Dismiss discovery status"
-          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
         </button>

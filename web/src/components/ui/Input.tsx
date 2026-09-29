@@ -1,39 +1,50 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string;
+  error?: string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
-  error?: string;
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, leftIcon, rightIcon, error, disabled, ...props }, ref) => {
+  ({ className, type = 'text', label, error, leftIcon, rightIcon, id, disabled, ...props }, ref) => {
     return (
-      <div className="relative flex items-center w-full">
-        {leftIcon && (
-          <div className="absolute left-3 text-slate-400 pointer-events-none flex items-center">
-            {leftIcon}
-          </div>
+      <div className="w-full space-y-1">
+        {label && (
+          <label htmlFor={id} className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            {label}
+          </label>
         )}
-        <input
-          ref={ref}
-          disabled={disabled}
-          className={cn(
-            'w-full bg-slate-950/80 border border-slate-800 hover:border-slate-700/80 focus:border-amber-500/60 rounded-xl py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed',
-            leftIcon ? 'pl-9' : 'pl-3',
-            rightIcon ? 'pr-9' : 'pr-3',
-            error && 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/30',
-            className
+        <div className="relative flex items-center">
+          {leftIcon && (
+            <div className="absolute left-3 text-zinc-400 pointer-events-none flex items-center">
+              {leftIcon}
+            </div>
           )}
-          {...props}
-        />
-        {rightIcon && (
-          <div className="absolute right-3 text-slate-400 flex items-center">
-            {rightIcon}
-          </div>
-        )}
+          <input
+            id={id}
+            ref={ref}
+            type={type}
+            disabled={disabled}
+            className={cn(
+              'w-full rounded-xl border border-border-default bg-surface-card/90 px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed',
+              leftIcon && 'pl-9',
+              rightIcon && 'pr-9',
+              error && 'border-destructive focus:border-destructive focus:ring-destructive/30',
+              className
+            )}
+            {...props}
+          />
+          {rightIcon && (
+            <div className="absolute right-3 text-zinc-400 flex items-center">
+              {rightIcon}
+            </div>
+          )}
+        </div>
+        {error && <p className="text-[11px] text-destructive-text">{error}</p>}
       </div>
     );
   }
@@ -41,40 +52,32 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
 Input.displayName = 'Input';
 
-export interface SearchInputProps extends Omit<InputProps, 'leftIcon' | 'rightIcon'> {
+export interface SearchInputProps extends Omit<InputProps, 'rightIcon'> {
   onClear?: () => void;
 }
 
 export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
-  ({ value, onClear, onChange, className, placeholder = 'Search...', ...props }, ref) => {
-    const hasValue = Boolean(value);
+  ({ onClear, value, ...props }, ref) => {
+    const hasValue = Boolean(value && String(value).length > 0);
 
     return (
-      <div className="relative flex items-center w-full">
-        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
-        <input
-          ref={ref}
-          type="text"
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          className={cn(
-            'w-full bg-slate-950/80 border border-slate-800 hover:border-slate-700/80 focus:border-amber-500/60 rounded-xl py-2 pl-9 pr-8 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all shadow-inner',
-            className
-          )}
-          {...props}
-        />
-        {hasValue && onClear && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="absolute right-2.5 p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
-            aria-label="Clear input"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
+      <Input
+        ref={ref}
+        value={value}
+        rightIcon={
+          hasValue && onClear ? (
+            <button
+              type="button"
+              onClick={onClear}
+              aria-label="Clear input"
+              className="p-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          ) : undefined
+        }
+        {...props}
+      />
     );
   }
 );

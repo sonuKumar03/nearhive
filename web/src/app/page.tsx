@@ -12,7 +12,7 @@ import { useClusters } from '@/hooks/useClusters';
 import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
-import { CompanySearchResult } from '@/types';
+import { ClusterViewport, CompanySearchResult } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown, Sparkles } from 'lucide-react';
@@ -32,6 +32,7 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isClusterMode, setIsClusterMode] = useState(false);
+  const [viewport, setViewport] = useState<ClusterViewport | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
   const [isScrapeOpen, setIsScrapeOpen] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
@@ -102,7 +103,8 @@ export default function HomePage() {
       lat: center.lat,
       lng: center.lng,
       radius_km: radiusKm,
-      k: 20,
+      viewport: viewport ?? undefined,
+      q: debouncedQuery,
     },
     isClusterMode
   );
@@ -421,6 +423,14 @@ export default function HomePage() {
               setIsUserLocationActive(false);
               setCenter({ lat, lng });
               setIsClusterMode(false);
+            }}
+            onViewportChange={(next) => {
+              setViewport((previous) =>
+                previous && previous.west === next.west && previous.south === next.south &&
+                previous.east === next.east && previous.north === next.north && previous.zoom === next.zoom
+                  ? previous
+                  : next
+              );
             }}
           />
         </div>

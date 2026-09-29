@@ -64,6 +64,18 @@ export interface SpatialCluster {
   count: number;
   lat: number;
   lng: number;
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+export interface ClusterViewport {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+  zoom: number;
 }
 
 export interface Sighting {
@@ -142,6 +154,8 @@ export interface ClusterParams {
   lng: number;
   radius_km: number;
   k?: number;
+  viewport?: ClusterViewport;
+  q?: string;
 }
 
 export interface DiscoveryJob {

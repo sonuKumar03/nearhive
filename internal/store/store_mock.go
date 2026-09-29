@@ -95,14 +95,6 @@ func (m *MockStore) GetCompanyByID(_ context.Context, id uuid.UUID) (*model.Comp
 	return c, nil
 }
 
-
-
-
-
-
-
-
-
 func (m *MockStore) CreateLocation(_ context.Context, l *model.Location) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -127,15 +119,6 @@ func (m *MockStore) GetLocationsByCompany(_ context.Context, companyID uuid.UUID
 	}
 	return res, nil
 }
-
-
-
-
-
-
-
-
-
 
 func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, opts SearchOpts) ([]model.CompanySearchResult, error) {
 	m.mu.RLock()
@@ -243,8 +226,6 @@ func (m *MockStore) Search(_ context.Context, lat, lng, radiusMeters float64, op
 	return results, nil
 }
 
-
-
 func (m *MockStore) CountSearch(_ context.Context, lat, lng, radiusMeters float64, opts SearchOpts) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -326,8 +307,53 @@ func (m *MockStore) ClusterSearch(_ context.Context, lat, lng, radiusMeters floa
 	return res, nil
 }
 
-
-
+func (m *MockStore) ClusterGridSearch(_ context.Context, lat, lng, radiusMeters float64, view ClusterViewport) ([]model.SpatialCluster, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cellMeters := 40075016.68557849 / float64(uint64(1)<<uint(view.Zoom))
+	type cell struct{ x, y int64 }
+	groups := make(map[cell]*model.SpatialCluster)
+	for _, loc := range m.Locations {
+		if loc.Lat < view.South || loc.Lat > view.North || loc.Lng < view.West || loc.Lng > view.East ||
+			haversineDistance(lat, lng, loc.Lat, loc.Lng) > radiusMeters || loc.PresenceType == model.PresenceTypeJobLocationOnly {
+			continue
+		}
+		if view.Query != nil {
+			company := m.Companies[loc.CompanyID]
+			if company == nil || !strings.Contains(strings.ToLower(company.Name), strings.ToLower(*view.Query)) {
+				continue
+			}
+		}
+		mercatorLat := math.Max(-85.05112878, math.Min(85.05112878, loc.Lat))
+		key := cell{
+			x: int64(math.Floor((loc.Lng * math.Pi / 180 * 6378137) / cellMeters)),
+			y: int64(math.Floor((math.Log(math.Tan(math.Pi/4+mercatorLat*math.Pi/360)) * 6378137) / cellMeters)),
+		}
+		cluster := groups[key]
+		if cluster == nil {
+			cluster = &model.SpatialCluster{West: loc.Lng, South: loc.Lat, East: loc.Lng, North: loc.Lat}
+			groups[key] = cluster
+		}
+		cluster.Count++
+		cluster.Lat += loc.Lat
+		cluster.Lng += loc.Lng
+		cluster.West = math.Min(cluster.West, loc.Lng)
+		cluster.South = math.Min(cluster.South, loc.Lat)
+		cluster.East = math.Max(cluster.East, loc.Lng)
+		cluster.North = math.Max(cluster.North, loc.Lat)
+	}
+	result := make([]model.SpatialCluster, 0, len(groups))
+	for _, cluster := range groups {
+		cluster.Lat /= float64(cluster.Count)
+		cluster.Lng /= float64(cluster.Count)
+		result = append(result, *cluster)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
+	for i := range result {
+		result[i].ClusterID = i
+	}
+	return result, nil
+}
 
 func (m *MockStore) GetSightingsByCompany(_ context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	m.mu.RLock()
@@ -341,26 +367,6 @@ func (m *MockStore) GetSightingsByCompany(_ context.Context, companyID uuid.UUID
 	return res, nil
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	const R = 6371000 // Earth radius in meters
 	dLat := (lat2 - lat1) * (math.Pi / 180.0)
@@ -373,18 +379,6 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 // DiscoveryStore implementation
-
-
-
-
-
-
-
-
-
-
-
-
 
 // TechnicalJobStore implementation
 
@@ -676,8 +670,3 @@ func (m *MockStore) CountTechnicalJobSearch(_ context.Context, lat, lng, radiusM
 
 	return count, nil
 }
-
-
-
-
-

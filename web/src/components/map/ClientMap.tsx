@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { CompanySearchResult, SpatialCluster } from '@/types';
+import { ClusterViewport, CompanySearchResult, SpatialCluster } from '@/types';
 
 interface ClientMapProps {
   center: { lat: number; lng: number };
@@ -15,6 +15,7 @@ interface ClientMapProps {
   onCenterChange: (lat: number, lng: number) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
   onClusterZoom: (lat: number, lng: number) => void;
+  onViewportChange: (viewport: ClusterViewport) => void;
 }
 
 function escapeHtml(text: string): string {
@@ -36,6 +37,7 @@ export default function ClientMap({
   onCenterChange,
   onSelectCompany,
   onClusterZoom,
+  onViewportChange,
 }: ClientMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -48,11 +50,13 @@ export default function ClientMap({
   const onCenterChangeRef = useRef(onCenterChange);
   const onSelectCompanyRef = useRef(onSelectCompany);
   const onClusterZoomRef = useRef(onClusterZoom);
+  const onViewportChangeRef = useRef(onViewportChange);
 
   useEffect(() => {
     onCenterChangeRef.current = onCenterChange;
     onSelectCompanyRef.current = onSelectCompany;
     onClusterZoomRef.current = onClusterZoom;
+    onViewportChangeRef.current = onViewportChange;
   });
 
   useEffect(() => {
@@ -65,6 +69,20 @@ export default function ClientMap({
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const reportViewport = () => {
+      const bounds = map.getBounds();
+      const round = (value: number) => Number(value.toFixed(5));
+      onViewportChangeRef.current({
+        west: round(bounds.getWest()),
+        south: round(bounds.getSouth()),
+        east: round(bounds.getEast()),
+        north: round(bounds.getNorth()),
+        zoom: map.getZoom(),
+      });
+    };
+    map.on('moveend zoomend', reportViewport);
+    map.whenReady(reportViewport);
 
     // OpenStreetMap tile layer styled with sleek dark CSS filter in dark-map-tiles class
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -150,11 +168,12 @@ export default function ClientMap({
     if (isClusterMode) {
       clusters.forEach((c) => {
         if (!c.lat || !c.lng) return;
+        const canZoom = c.count > 1 && mapRef.current!.getZoom() < 18;
         const size = Math.min(56, Math.max(34, 26 + Math.log2(c.count + 1) * 5));
         const icon = L.divIcon({
           className: 'cluster-pin',
           html: `
-            <div role="button" aria-label="Cluster of ${c.count} companies, click to zoom" class="flex items-center justify-center rounded-full shadow-2xl border-2 border-indigo-400 bg-indigo-600/90 text-white font-mono font-black transition-transform hover:scale-110 cursor-pointer shadow-indigo-500/30" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
+              <div role="button" aria-label="${c.count} ${c.count === 1 ? 'office' : 'offices'}, click to ${canZoom ? 'zoom in' : 'show nearby pins'}" class="flex items-center justify-center rounded-full shadow-2xl border-2 border-indigo-400 bg-indigo-600/90 text-white font-mono font-black transition-transform hover:scale-110 cursor-pointer shadow-indigo-500/30" style="width: ${size}px; height: ${size}px; margin-left: -${size / 2}px; margin-top: -${size / 2}px; font-size: ${size > 42 ? '12px' : '10px'}">
               ${c.count}
             </div>
           `,
@@ -163,11 +182,20 @@ export default function ClientMap({
 
         const marker = L.marker([c.lat, c.lng], {
           icon,
-          title: `Cluster of ${c.count} companies`,
-          alt: `Cluster of ${c.count} companies`,
+          title: `${c.count} ${c.count === 1 ? 'office' : 'offices'}`,
+          alt: `${c.count} ${c.count === 1 ? 'office' : 'offices'}`,
         });
         marker.on('click', () => {
-          onClusterZoomRef.current(c.lat, c.lng);
+          const map = mapRef.current;
+          if (!map) return;
+          if (c.count > 1 && map.getZoom() < 18) {
+            const bounds = L.latLngBounds([c.south, c.west], [c.north, c.east]);
+            const zoom = Math.min(18, Math.max(map.getZoom() + 1, map.getBoundsZoom(bounds.pad(0.2))));
+            map.setView([c.lat, c.lng], zoom, { animate: true });
+          } else {
+            map.setView([c.lat, c.lng], Math.max(map.getZoom(), 16), { animate: true });
+            onClusterZoomRef.current(c.lat, c.lng);
+          }
         });
         markerLayerRef.current?.addLayer(marker);
       });

@@ -21,10 +21,18 @@ export function useClusters(params: ClusterParams, enabled = false) {
         lat: params.lat.toString(),
         lng: params.lng.toString(),
         radius: params.radius_km.toString(),
-        k: (params.k || 20).toString(),
       });
+      if (params.viewport) {
+        q.set('zoom', params.viewport.zoom.toString());
+        for (const key of ['west', 'south', 'east', 'north'] as const) {
+          q.set(key, params.viewport[key].toString());
+        }
+      } else {
+        q.set('k', (params.k || 20).toString());
+      }
+      if (params.q) q.set('q', params.q);
       return fetchApi<ClusterResponse>(`/api/v1/search/clusters?${q.toString()}`);
     },
-    enabled: enabled && !Number.isNaN(params.lat) && !Number.isNaN(params.lng),
+    enabled: enabled && !!params.viewport && !Number.isNaN(params.lat) && !Number.isNaN(params.lng),
   });
 }

@@ -234,6 +234,42 @@ func (s *PostgresStore) ClusterSearch(ctx context.Context, lat, lng, radiusMeter
 	return clusters, nil
 }
 
+// ClusterGridSearch groups only visible offices into map-sized cells.
+func (s *PostgresStore) ClusterGridSearch(ctx context.Context, lat, lng, radiusMeters float64, view ClusterViewport) ([]model.SpatialCluster, error) {
+	// A cell spans one 256-pixel map tile at the requested zoom.
+	cellMeters := 40075016.68557849 / float64(uint64(1)<<uint(view.Zoom))
+	query := `
+	WITH visible AS (
+		SELECT ST_Y(l.coords::geometry) AS lat,
+		       ST_X(l.coords::geometry) AS lng,
+		       FLOOR(ST_X(ST_Transform(l.coords::geometry, 3857)) / $8) AS cell_x,
+		       FLOOR(ST_Y(ST_Transform(l.coords::geometry, 3857)) / $8) AS cell_y
+		FROM locations l
+		JOIN companies c ON c.id = l.company_id
+		WHERE l.presence_type <> 'job_location_only'
+		  AND ST_DWithin(l.coords, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+		  AND ST_Intersects(l.coords::geometry, ST_MakeEnvelope($4, $5, $6, $7, 4326))
+		  AND ($9::text IS NULL OR c.name ILIKE '%' || $9 || '%' OR c.normalized_name % $9)
+	), grouped AS (
+		SELECT COUNT(*)::int AS count, AVG(lat) AS lat, AVG(lng) AS lng,
+		       MIN(lng) AS west, MIN(lat) AS south,
+		       MAX(lng) AS east, MAX(lat) AS north
+		FROM visible
+		GROUP BY cell_x, cell_y
+	)
+	SELECT (ROW_NUMBER() OVER (ORDER BY count DESC) - 1)::int AS cluster_id,
+	       count, lat, lng, west, south, east, north
+	FROM grouped
+	ORDER BY count DESC`
+	var clusters []model.SpatialCluster
+	err := s.db.SelectContext(ctx, &clusters, query, lng, lat, radiusMeters,
+		view.West, view.South, view.East, view.North, cellMeters, view.Query)
+	if clusters == nil {
+		clusters = []model.SpatialCluster{}
+	}
+	return clusters, err
+}
+
 func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uuid.UUID) ([]model.Sighting, error) {
 	var sightings []model.Sighting
 	query := `SELECT id, source, source_family, source_record_id, content_hash, discovery_job_id, source_url, company_name, raw_address, lat, lng, metadata, company_id, location_id, first_seen_at, last_seen_at, scraped_at
@@ -241,4 +277,3 @@ func (s *PostgresStore) GetSightingsByCompany(ctx context.Context, companyID uui
 	err := s.db.SelectContext(ctx, &sightings, query, companyID)
 	return sightings, err
 }
-

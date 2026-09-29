@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { CompanySearchResult, SpatialCluster } from '@/types';
+import { ClusterViewport, CompanySearchResult, SpatialCluster } from '@/types';
 
 const ClientMap = dynamic(() => import('./ClientMap'), {
   ssr: false,
@@ -22,6 +22,7 @@ interface MapProps {
   onCenterChange: (lat: number, lng: number) => void;
   onSelectCompany: (company: CompanySearchResult) => void;
   onClusterZoom: (lat: number, lng: number) => void;
+  onViewportChange: (viewport: ClusterViewport) => void;
 }
 
 export default function MapContainer(props: MapProps) {

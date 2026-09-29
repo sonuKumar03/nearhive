@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -178,7 +179,41 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	clusters, err := h.store.ClusterSearch(r.Context(), lat, lng, radiusKM*1000, k)
+	var clusters []model.SpatialCluster
+	var err error
+	meta := map[string]any{}
+	if zoomStr := r.URL.Query().Get("zoom"); zoomStr != "" {
+		zoom, parseErr := strconv.Atoi(zoomStr)
+		if parseErr != nil || zoom < 0 || zoom > 19 {
+			JSONError(w, http.StatusBadRequest, "zoom must be between 0 and 19", "VALIDATION_ERROR", nil)
+			return
+		}
+		bounds := make(map[string]float64, 4)
+		for _, name := range []string{"west", "south", "east", "north"} {
+			value, parseErr := strconv.ParseFloat(r.URL.Query().Get(name), 64)
+			if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				JSONError(w, http.StatusBadRequest, "valid west, south, east, and north are required", "VALIDATION_ERROR", nil)
+				return
+			}
+			bounds[name] = value
+		}
+		if bounds["west"] < -180 || bounds["east"] > 180 || bounds["south"] < -90 || bounds["north"] > 90 ||
+			bounds["west"] >= bounds["east"] || bounds["south"] >= bounds["north"] {
+			JSONError(w, http.StatusBadRequest, "invalid viewport bounds", "VALIDATION_ERROR", nil)
+			return
+		}
+		view := store.ClusterViewport{
+			West: bounds["west"], South: bounds["south"], East: bounds["east"], North: bounds["north"], Zoom: zoom,
+		}
+		if q := r.URL.Query().Get("q"); q != "" {
+			view.Query = &q
+		}
+		clusters, err = h.store.ClusterGridSearch(r.Context(), lat, lng, radiusKM*1000, view)
+		meta["zoom"] = zoom
+	} else {
+		clusters, err = h.store.ClusterSearch(r.Context(), lat, lng, radiusKM*1000, k)
+		meta["k"] = k
+	}
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to compute spatial clusters: "+err.Error(), "INTERNAL_ERROR", nil)
 		return
@@ -189,17 +224,12 @@ func (h *SearchHandler) SearchClusters(w http.ResponseWriter, r *http.Request) {
 		totalPoints += c.Count
 	}
 
+	meta["cluster_count"] = len(clusters)
+	meta["total_points"] = totalPoints
+	meta["radius_km"] = radiusKM
+	meta["center"] = map[string]float64{"lat": lat, "lng": lng}
 	JSON(w, http.StatusOK, map[string]any{
-		"meta": map[string]any{
-			"k":             k,
-			"cluster_count": len(clusters),
-			"total_points":  totalPoints,
-			"radius_km":     radiusKM,
-			"center": map[string]float64{
-				"lat": lat,
-				"lng": lng,
-			},
-		},
+		"meta":     meta,
 		"clusters": clusters,
 	})
 }

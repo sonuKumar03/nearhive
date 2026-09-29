@@ -164,6 +164,10 @@ type SpatialCluster struct {
 	Count     int     `db:"count" json:"count"`
 	Lat       float64 `db:"lat" json:"lat"`
 	Lng       float64 `db:"lng" json:"lng"`
+	West      float64 `db:"west" json:"west"`
+	South     float64 `db:"south" json:"south"`
+	East      float64 `db:"east" json:"east"`
+	North     float64 `db:"north" json:"north"`
 }
 
 // ComputeRuntime populates DurationMS, ElapsedSeconds, and DurationText for ScrapeJob and its Tasks.

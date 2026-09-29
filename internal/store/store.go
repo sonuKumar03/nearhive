@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("record not found")
-	ErrConflict = errors.New("record already exists")
+	ErrNotFound        = errors.New("record not found")
+	ErrConflict        = errors.New("record already exists")
 	ErrInvalidJobState = errors.New("job cannot be cancelled in its current state")
 )
 
@@ -36,6 +36,12 @@ type TechnicalJobSearchOpts struct {
 	Offset          int
 }
 
+type ClusterViewport struct {
+	West, South, East, North float64
+	Zoom                     int
+	Query                    *string
+}
+
 // Store exposes account writes and discovery reads to the Go API.
 type Store interface {
 	UserStore
@@ -44,6 +50,7 @@ type Store interface {
 	Search(context.Context, float64, float64, float64, SearchOpts) ([]model.CompanySearchResult, error)
 	CountSearch(context.Context, float64, float64, float64, SearchOpts) (int, error)
 	ClusterSearch(context.Context, float64, float64, float64, int) ([]model.SpatialCluster, error)
+	ClusterGridSearch(context.Context, float64, float64, float64, ClusterViewport) ([]model.SpatialCluster, error)
 	GetSightingsByCompany(context.Context, uuid.UUID) ([]model.Sighting, error)
 	GetTechnicalJobsByCompany(context.Context, uuid.UUID, time.Time) ([]model.TechnicalJobPosting, error)
 	SearchTechnicalJobs(context.Context, float64, float64, float64, TechnicalJobSearchOpts) ([]model.TechnicalJobSearchResult, error)

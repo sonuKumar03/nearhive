@@ -88,20 +88,23 @@
     color: #e0e7ff;
   }
 
-  /* Force Leaflet tile containers to pitch black to prevent any white loading splash */
-  .leaflet-container,
-  .leaflet-tile-pane,
-  .leaflet-tile-container {
-    background-color: #09090b !important;
-  }
+}
 
-  /* Sleek modern dark mode filter for OpenStreetMap tiles: obsidian deep dark with cool indigo tint */
-  .dark-map-tiles,
-  .leaflet-tile.dark-map-tiles {
-    filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7) !important;
-    border: none !important;
-    outline: none !important;
-  }
+/* Force Leaflet tile containers to pitch black to prevent any white/grey loading splash */
+.leaflet-container,
+.leaflet-tile-pane,
+.leaflet-tile-container,
+.leaflet-pane {
+  background-color: #09090b !important;
+  background: #09090b !important;
+}
+
+/* Sleek modern dark mode filter for OpenStreetMap tiles: obsidian deep dark with cool indigo tint */
+.dark-map-tiles,
+.leaflet-tile.dark-map-tiles {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7) !important;
+  border: none !important;
+  outline: none !important;
 }
 
 /* Pulsing epicenter animation */

@@ -25,19 +25,19 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 disabled:opacity-50 disabled:pointer-events-none cursor-pointer select-none rounded-xl';
+      'inline-flex items-center justify-center font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:opacity-50 disabled:pointer-events-none cursor-pointer select-none rounded-xl tracking-tight';
 
     const variants = {
       primary:
-        'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-[0.99] text-slate-950 font-semibold shadow-md shadow-amber-500/20 border border-amber-400/30',
+        'bg-primary hover:bg-primary-hover active:scale-[0.99] text-primary-foreground font-medium shadow-md shadow-glow-primary border border-primary/30',
       secondary:
-        'bg-slate-800/80 hover:bg-slate-800 text-slate-100 hover:text-white border border-slate-700/60 active:scale-[0.99]',
+        'bg-secondary hover:bg-secondary-hover text-secondary-foreground border border-border-default active:scale-[0.99] shadow-sm',
       outline:
-        'bg-transparent hover:bg-slate-800/60 text-slate-300 hover:text-white border border-slate-700/80',
+        'bg-transparent hover:bg-secondary text-zinc-300 hover:text-white border border-border-default',
       ghost:
-        'bg-transparent hover:bg-slate-800/50 text-slate-400 hover:text-slate-100 border border-transparent',
+        'bg-transparent hover:bg-secondary text-zinc-400 hover:text-zinc-100 border border-transparent',
       danger:
-        'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30',
+        'bg-destructive-subtle hover:bg-destructive/20 text-destructive border border-destructive/30',
     };
 
     const sizes = {

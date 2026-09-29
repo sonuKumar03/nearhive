@@ -135,13 +135,13 @@ export default function ScrapeModal({
       onClose={onClose}
       title="Discover Companies & Jobs"
       subtitle="Automated crawling across Google Maps, LinkedIn & technical careers"
-      icon={<Search className="w-5 h-5 text-amber-400" />}
+      icon={<Search className="w-5 h-5 text-indigo-400" />}
       maxWidth="lg"
     >
       <div className="space-y-5">
         {/* Mode Switcher */}
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          <div className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
             Target Mode
           </div>
           <SegmentedControl<'preset' | 'coordinates'>
@@ -166,12 +166,12 @@ export default function ScrapeModal({
             />
           </div>
         ) : (
-          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3.5 flex items-center justify-between">
+          <div className="rounded-xl border border-white/[0.08] bg-[#121216]/70 p-3.5 flex items-center justify-between">
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+              <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">
                 Map Epicenter Focus
               </div>
-              <div className="text-sm font-mono font-medium text-amber-400 mt-0.5">
+              <div className="text-sm font-mono font-medium text-indigo-400 mt-0.5">
                 {currentCenter
                   ? `${currentCenter.lat.toFixed(4)}°N, ${currentCenter.lng.toFixed(4)}°E`
                   : 'Current map center unavailable'}
@@ -244,13 +244,13 @@ export default function ScrapeModal({
                 return (
                   <li
                     key={job.id}
-                    className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 hover:border-slate-700/80 transition-all flex flex-col gap-2"
+                    className="rounded-xl border border-white/[0.08] bg-[#121216]/70 p-3 hover:border-white/[0.18] transition-all flex flex-col gap-2"
                   >
                     {/* Top row: Status, Location, Radius, Time, Cancel */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
                         {isRunning && (
-                          <Badge variant="amber" pulsing>
+                          <Badge variant="indigo" pulsing>
                             Running
                           </Badge>
                         )}
@@ -265,12 +265,12 @@ export default function ScrapeModal({
                           </Badge>
                         )}
 
-                        <span className="text-xs font-semibold text-slate-200 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-amber-400" />
+                        <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-indigo-400" />
                           {locationName}
                         </span>
                         {job.radius_km && (
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px] text-zinc-400">
                             • {job.radius_km} km
                           </span>
                         )}
@@ -278,7 +278,7 @@ export default function ScrapeModal({
 
                       <div className="flex items-center gap-2">
                         {timeAgo && (
-                          <span className="text-[11px] text-slate-500">{timeAgo}</span>
+                          <span className="text-[11px] text-zinc-500">{timeAgo}</span>
                         )}
                         {isRunning && (
                           <Button
@@ -293,26 +293,26 @@ export default function ScrapeModal({
                     </div>
 
                     {/* Bottom row: Statistics tags & Action button */}
-                    <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/40">
-                      <div className="flex items-center gap-3 text-slate-300">
+                    <div className="flex items-center justify-between text-xs pt-1.5 border-t border-white/[0.06]">
+                      <div className="flex items-center gap-3 text-zinc-300">
                         {isCompleted ? (
                           <>
                             <span className="text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
                               <Building2 className="w-3 h-3" />
                               <span>{job.company_count ?? 0} Companies</span>
                             </span>
-                            <span className="text-amber-300 font-semibold flex items-center gap-1 text-[11px]">
+                            <span className="text-indigo-300 font-semibold flex items-center gap-1 text-[11px]">
                               <Briefcase className="w-3 h-3" />
                               <span>{job.job_count ?? 0} Tech Jobs</span>
                             </span>
                           </>
                         ) : isRunning ? (
-                          <span className="text-slate-400 italic text-[11px] flex items-center gap-1">
+                          <span className="text-zinc-400 italic text-[11px] flex items-center gap-1">
                             <span className="animate-spin">⟳</span>
                             <span>Scanning Google Maps, LinkedIn & Portals...</span>
                           </span>
                         ) : (
-                          <span className="text-slate-500 text-[11px]">
+                          <span className="text-zinc-500 text-[11px]">
                             Discovery ended without full crawl
                           </span>
                         )}
@@ -322,7 +322,7 @@ export default function ScrapeModal({
                         <Button
                           size="xs"
                           variant="ghost"
-                          className="text-amber-400 hover:text-amber-300 h-6 px-1.5"
+                          className="text-indigo-400 hover:text-indigo-300 h-6 px-1.5"
                           rightIcon={<ArrowRight className="w-3 h-3" />}
                           onClick={() => {
                             onFocusLocation(job.lat!, job.lng!, job.radius_km);

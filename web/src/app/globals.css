@@ -1,73 +1,114 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface-base: #020617;
-  --color-surface-subtle: #0b1329;
-  --color-surface-card: #0f172a;
-  --color-surface-overlay: #1e293b;
-  --color-surface-elevated: #1e293b;
+  --font-sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  --color-border-subtle: #1e293b;
-  --color-border-default: #334155;
-  --color-border-strong: #475569;
+  /* Semantic Surfaces */
+  --color-surface-base: #09090b;
+  --color-surface-subtle: #0f0f13;
+  --color-surface-card: #131318;
+  --color-surface-overlay: #1a1a23;
+  --color-surface-elevated: #22222f;
 
-  --color-accent-amber: #f59e0b;
-  --color-accent-amber-hover: #fbbf24;
-  --color-accent-emerald: #10b981;
-  --color-accent-rose: #f43f5e;
-  --color-accent-sky: #0284c7;
+  /* Semantic Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-default: rgba(255, 255, 255, 0.10);
+  --color-border-strong: rgba(255, 255, 255, 0.20);
+  --color-border-focus: rgba(99, 102, 241, 0.50);
 
-  --shadow-glow-amber: 0 0 20px -3px rgba(245, 158, 11, 0.25);
-  --shadow-glow-emerald: 0 0 20px -3px rgba(16, 185, 129, 0.25);
-  --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+  /* Primary Brand Role */
+  --color-primary: #6366f1;
+  --color-primary-hover: #4f46e5;
+  --color-primary-subtle: rgba(99, 102, 241, 0.12);
+  --color-primary-text: #a5b4fc;
+  --color-primary-foreground: #ffffff;
+
+  /* Secondary Role */
+  --color-secondary: rgba(255, 255, 255, 0.05);
+  --color-secondary-hover: rgba(255, 255, 255, 0.10);
+  --color-secondary-foreground: #f4f4f5;
+
+  /* Functional / Feedback Semantic Roles */
+  --color-success: #10b981;
+  --color-success-subtle: rgba(16, 185, 129, 0.12);
+  --color-success-text: #6ee7b7;
+  --color-destructive: #f43f5e;
+  --color-destructive-subtle: rgba(244, 63, 94, 0.12);
+  --color-destructive-text: #fda4af;
+  --color-warning: #f59e0b;
+  --color-warning-subtle: rgba(245, 158, 11, 0.12);
+  --color-warning-text: #fcd34d;
+  --color-info: #06b6d4;
+  --color-info-subtle: rgba(6, 182, 212, 0.12);
+  --color-info-text: #67e8f9;
+
+  /* Elevation Shadows & Glows */
+  --shadow-glow-primary: 0 0 25px -4px rgba(99, 102, 241, 0.35);
+  --shadow-modal: 0 25px 60px -12px rgba(0, 0, 0, 0.90);
 }
 
 @layer base {
   body {
-    background-color: #020617;
-    color: #f8fafc;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #09090b;
+    color: #f4f4f5;
+    font-family: var(--font-sans);
+    letter-spacing: -0.012em;
   }
 
-  /* Custom sleek dark scrollbar */
+  code, kbd, samp, pre {
+    font-family: var(--font-mono);
+  }
+
+  /* Sleek modern dark scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+    background: rgba(255, 255, 255, 0.28);
   }
 
   /* Firefox scrollbar */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #334155 transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   }
 
   /* Accent text selection */
   ::selection {
-    background-color: rgba(245, 158, 11, 0.3);
-    color: #fef3c7;
+    background-color: rgba(99, 102, 241, 0.35);
+    color: #e0e7ff;
   }
-}
 
-/* Custom dark tile styling for Leaflet CartoDB / OSM */
-.dark-tiles {
-  filter: brightness(0.7) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+  /* Force Leaflet tile containers to pitch black to prevent any white loading splash */
+  .leaflet-container,
+  .leaflet-tile-pane,
+  .leaflet-tile-container {
+    background-color: #09090b !important;
+  }
+
+  /* Sleek modern dark mode filter for OpenStreetMap tiles: obsidian deep dark with cool indigo tint */
+  .dark-map-tiles,
+  .leaflet-tile.dark-map-tiles {
+    filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7) !important;
+    border: none !important;
+    outline: none !important;
+  }
 }
 
 /* Pulsing epicenter animation */
 @keyframes epicenter-pulse {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.6); opacity: 0.2; }
-  100% { transform: scale(0.95); opacity: 0.8; }
+  0% { transform: scale(0.95); opacity: 0.85; }
+  50% { transform: scale(1.6); opacity: 0.15; }
+  100% { transform: scale(0.95); opacity: 0.85; }
 }
 
 .epicenter-pulse {
@@ -76,23 +117,23 @@
 
 /* Leaflet Dark Theme Popup */
 .company-leaflet-popup .leaflet-popup-content-wrapper {
-  background: #0f172a;
-  color: #f8fafc;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+  background: #131318;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.8), 0 8px 10px -6px rgba(0, 0, 0, 0.8);
   padding: 4px;
 }
 
 .company-leaflet-popup .leaflet-popup-tip {
-  background: #0f172a;
+  background: #131318;
 }
 
 .company-leaflet-popup a.leaflet-popup-close-button {
-  color: #94a3b8;
+  color: #a1a1aa;
   padding: 6px;
 }
 
 .company-leaflet-popup a.leaflet-popup-close-button:hover {
-  color: #f8fafc;
+  color: #f4f4f5;
 }

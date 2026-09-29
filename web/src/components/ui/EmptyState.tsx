@@ -1,11 +1,10 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { SearchX } from 'lucide-react';
 
 export interface EmptyStateProps {
-  icon?: React.ReactNode;
+  icon: React.ReactNode;
   title: string;
-  description?: string;
+  description: string;
   action?: React.ReactNode;
   className?: string;
 }
@@ -18,19 +17,18 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   className,
 }) => {
   return (
-    <div className={cn('py-14 px-6 text-center space-y-3.5 select-none', className)}>
-      <div className="w-12 h-12 rounded-2xl bg-slate-800/70 border border-slate-700/50 flex items-center justify-center mx-auto shadow-inner text-slate-400">
-        {icon || <SearchX className="w-6 h-6" />}
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center p-8 text-center rounded-2xl border border-dashed border-border-default bg-surface-card/50',
+        className
+      )}
+    >
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-subtle border border-primary/20 text-primary-text mb-3.5 shadow-sm">
+        {icon}
       </div>
-      <div className="space-y-1">
-        <h4 className="font-semibold text-xs text-slate-200 tracking-tight">{title}</h4>
-        {description && (
-          <p className="text-[11px] text-slate-400 leading-relaxed max-w-[280px] mx-auto">
-            {description}
-          </p>
-        )}
-      </div>
-      {action && <div className="pt-1">{action}</div>}
+      <h4 className="text-sm font-semibold text-zinc-200 mb-1">{title}</h4>
+      <p className="text-xs text-zinc-400 max-w-xs leading-relaxed mb-4">{description}</p>
+      {action && <div>{action}</div>}
     </div>
   );
 };

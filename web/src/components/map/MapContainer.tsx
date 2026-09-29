@@ -6,8 +6,8 @@ import { CompanySearchResult, SpatialCluster } from '@/types';
 const ClientMap = dynamic(() => import('./ClientMap'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-slate-950 text-slate-400">
-      <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full" />
+    <div className="w-full h-full flex items-center justify-center bg-[#09090b] text-zinc-400">
+      <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
     </div>
   ),
 });

@@ -18,7 +18,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <div className="w-full space-y-1">
         {label && (
-          <label htmlFor={id} className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <label htmlFor={id} className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
             {label}
           </label>
         )}
@@ -28,23 +28,23 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             disabled={disabled}
             className={cn(
-              'w-full appearance-none rounded-xl border border-slate-700/80 bg-slate-800/90 px-3.5 py-2.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 pr-10 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-inner',
-              error && 'border-rose-500 focus:border-rose-500 focus:ring-rose-500/30',
+              'w-full appearance-none rounded-xl border border-border-default bg-surface-card/90 px-3.5 py-2.5 text-xs text-zinc-100 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 pr-10 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-inner',
+              error && 'border-destructive focus:border-destructive focus:ring-destructive/30',
               className
             )}
             {...props}
           >
             {options.map((opt) => (
-              <option key={opt.value} value={opt.value} className="bg-slate-900 text-slate-100 py-1">
+              <option key={opt.value} value={opt.value} className="bg-surface-elevated text-zinc-100 py-1">
                 {opt.label}
               </option>
             ))}
           </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400">
             <ChevronDown className="w-4 h-4" />
           </div>
         </div>
-        {error && <p className="text-[11px] text-rose-400">{error}</p>}
+        {error && <p className="text-[11px] text-destructive-text">{error}</p>}
       </div>
     );
   }

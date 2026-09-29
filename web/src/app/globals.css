@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+@theme {
+  --color-surface-base: #020617;
+  --color-surface-subtle: #0b1329;
+  --color-surface-card: #0f172a;
+  --color-surface-overlay: #1e293b;
+  --color-surface-elevated: #1e293b;
+
+  --color-border-subtle: #1e293b;
+  --color-border-default: #334155;
+  --color-border-strong: #475569;
+
+  --color-accent-amber: #f59e0b;
+  --color-accent-amber-hover: #fbbf24;
+  --color-accent-emerald: #10b981;
+  --color-accent-rose: #f43f5e;
+  --color-accent-sky: #0284c7;
+
+  --shadow-glow-amber: 0 0 20px -3px rgba(245, 158, 11, 0.25);
+  --shadow-glow-emerald: 0 0 20px -3px rgba(16, 185, 129, 0.25);
+  --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+}
+
 @layer base {
   body {
     background-color: #020617;

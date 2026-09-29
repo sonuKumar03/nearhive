@@ -13,6 +13,8 @@ import { useDiscoveryJobs } from '@/hooks/useDiscoveryJobs';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { CompanySearchResult } from '@/types';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { Play, Layers, RefreshCw, LocateFixed, Loader2, Map as MapIcon, List, AlertCircle, X, ChevronDown, Sparkles } from 'lucide-react';
 
 const CITY_PRESETS = [
@@ -263,24 +265,18 @@ export default function HomePage() {
           <div className="h-4 w-px bg-slate-800 hidden sm:block mx-0.5 md:mx-1" />
 
           {/* Current Location Button - only active when geolocation is active */}
-          <button
+          <Button
+            size="xs"
+            variant={isUserLocationActive ? 'primary' : 'secondary'}
             onClick={handleLocateMe}
             disabled={geoLoading}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer border font-medium disabled:opacity-50 ${
-              isUserLocationActive
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold'
-                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700/40'
-            }`}
+            isLoading={geoLoading}
+            leftIcon={!geoLoading ? <LocateFixed className="w-3.5 h-3.5" /> : undefined}
             title={geoError || 'Locate around current browser location'}
             aria-label="Locate Me around current browser location"
           >
-            {geoLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <LocateFixed className={`w-3.5 h-3.5 ${isUserLocationActive ? 'text-amber-400' : 'text-slate-400'}`} />
-            )}
             <span className="hidden sm:inline">Locate Me</span>
-          </button>
+          </Button>
 
           {/* City Presets - Dropdown on small screens, Pills on large */}
           <div className="flex lg:hidden items-center">
@@ -306,22 +302,22 @@ export default function HomePage() {
           </div>
 
           <div className="hidden lg:flex items-center gap-1">
-            {CITY_PRESETS.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => {
-                  setIsUserLocationActive(false);
-                  setCenter({ lat: c.lat, lng: c.lng });
-                }}
-                className={`px-2 py-1 text-xs rounded-lg transition-colors cursor-pointer border ${
-                  !isUserLocationActive && center.lat === c.lat && center.lng === c.lng
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold'
-                    : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700/40'
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
+            {CITY_PRESETS.map((c) => {
+              const isSelected = !isUserLocationActive && center.lat === c.lat && center.lng === c.lng;
+              return (
+                <Button
+                  key={c.name}
+                  size="xs"
+                  variant={isSelected ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    setIsUserLocationActive(false);
+                    setCenter({ lat: c.lat, lng: c.lng });
+                  }}
+                >
+                  {c.name}
+                </Button>
+              );
+            })}
           </div>
         </div>
 
@@ -330,14 +326,14 @@ export default function HomePage() {
           {/* Active Background Scraper / Discovery Header Pill */}
           {isAnyJobRunning && (
             <button
+              type="button"
               onClick={() => setIsScrapeOpen(true)}
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/20 transition-all cursor-pointer animate-pulse"
+              className="hidden md:flex cursor-pointer transition-transform hover:scale-105"
               title="View discovery runs"
             >
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span className="font-semibold">
-                {runningDiscovery.length} Discovery Active
-              </span>
+              <Badge variant="amber" pulsing size="md" icon={<RefreshCw className="w-3 h-3 animate-spin" />}>
+                <span className="font-semibold">{runningDiscovery.length} Discovery Active</span>
+              </Badge>
             </button>
           )}
 
@@ -359,14 +355,16 @@ export default function HomePage() {
             <span className="text-xs font-mono font-bold text-amber-400 min-w-[32px] md:min-w-[36px]">{radiusKm} km</span>
           </div>
 
-          <button
+          <Button
+            size="sm"
+            variant="primary"
             onClick={() => setIsScrapeOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 transition-all cursor-pointer shrink-0"
+            leftIcon={<Sparkles className="w-3.5 h-3.5 fill-current" />}
+            className="shrink-0"
           >
-            <Sparkles className="w-3.5 h-3.5 fill-current" />
             <span className="hidden sm:inline">Discover Tech Hub</span>
             <span className="sm:hidden">Discover</span>
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -396,17 +394,15 @@ export default function HomePage() {
         <div className={`flex-1 h-full relative ${mobileTab === 'map' ? 'block' : 'hidden md:block'}`}>
           {/* Floating Cluster Toggle */}
           <div className="absolute top-4 right-4 z-20">
-            <button
+            <Button
+              size="sm"
+              variant={isClusterMode ? 'primary' : 'secondary'}
+              leftIcon={<Layers className="w-3.5 h-3.5" />}
               onClick={() => setIsClusterMode(!isClusterMode)}
-              className={`px-3 py-1.5 rounded-xl shadow-xl text-xs font-semibold backdrop-blur-md border transition-all flex items-center gap-1.5 cursor-pointer ${
-                isClusterMode
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                  : 'bg-slate-900/90 border-slate-700/80 text-slate-200 hover:text-amber-400'
-              }`}
+              className="shadow-xl backdrop-blur-md"
             >
-              <Layers className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isClusterMode ? 'Pins View' : 'Cluster View'}</span>
-            </button>
+              {isClusterMode ? 'Pins View' : 'Cluster View'}
+            </Button>
           </div>
 
           <MapContainer

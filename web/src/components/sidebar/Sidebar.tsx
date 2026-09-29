@@ -1,7 +1,8 @@
 import { CompanySearchResult, TechnicalJobSearchResult } from '@/types';
 import CompanyCard from './CompanyCard';
 import JobCard from './JobCard';
-import { Search, Building2, Briefcase, X, SearchX } from 'lucide-react';
+import { SegmentedControl, SearchInput, EmptyState } from '@/components/ui';
+import { Building2, Briefcase, SearchX } from 'lucide-react';
 
 export type SidebarMode = 'companies' | 'jobs';
 
@@ -46,87 +47,41 @@ export default function Sidebar({
     >
       {/* Search & Mode Header */}
       <div className="p-3.5 border-b border-slate-800/80 bg-slate-900/60 space-y-2.5 shrink-0">
-        {/* Two-tab segmented mode toggle */}
-        <div
-          className="flex items-center gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800/90 shadow-inner"
-          role="tablist"
-          aria-label="Search results mode"
-        >
-          <button
-            role="tab"
-            aria-selected={!isJobs}
-            onClick={() => onModeChange?.('companies')}
-            className={`flex-1 h-8 px-3 text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium border box-border ${
-              !isJobs
-                ? 'bg-slate-800 text-amber-400 font-semibold shadow-sm border-slate-700/60'
-                : 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Offices</span>
-            <span
-              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border transition-colors shrink-0 ${
-                !isJobs
-                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
-                  : 'bg-slate-900 text-slate-500 border-slate-800'
-              }`}
-            >
-              {totalCount}
-            </span>
-          </button>
-          <button
-            role="tab"
-            aria-selected={isJobs}
-            onClick={() => onModeChange?.('jobs')}
-            className={`flex-1 h-8 px-3 text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium border box-border ${
-              isJobs
-                ? 'bg-slate-800 text-amber-400 font-semibold shadow-sm border-slate-700/60'
-                : 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Nearby Jobs</span>
-            <span
-              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border transition-colors shrink-0 ${
-                isJobs
-                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
-                  : 'bg-slate-900 text-slate-500 border-slate-800'
-              }`}
-            >
-              {effectiveJobsCount}
-            </span>
-          </button>
-        </div>
+        {/* Two-tab segmented mode toggle using Design System primitive */}
+        <SegmentedControl
+          value={activeMode}
+          onChange={(val) => onModeChange?.(val as SidebarMode)}
+          options={[
+            {
+              value: 'companies',
+              label: 'Offices',
+              icon: <Building2 className="w-3.5 h-3.5" />,
+              count: totalCount,
+            },
+            {
+              value: 'jobs',
+              label: 'Nearby Jobs',
+              icon: <Briefcase className="w-3.5 h-3.5" />,
+              count: effectiveJobsCount,
+            },
+          ]}
+        />
 
-        {/* Filter Input */}
-        <div className="relative flex items-center">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
-          <input
-            id="company-search-filter"
-            aria-label={
-              isJobs
-                ? 'Filter nearby jobs by title or company'
-                : 'Filter companies by name, industry, or tech park'
-            }
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={
-              isJobs ? 'Filter jobs by title or company...' : 'Filter by company, industry, or park...'
-            }
-            className="w-full bg-slate-950/80 border border-slate-800/90 hover:border-slate-700/80 focus:border-amber-500/60 rounded-xl py-2 pl-9 pr-8 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all shadow-inner"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => onSearchChange('')}
-              className="absolute right-2.5 p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-              aria-label="Clear filter"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        {/* Filter Input using SearchInput primitive */}
+        <SearchInput
+          id="company-search-filter"
+          aria-label={
+            isJobs
+              ? 'Filter nearby jobs by title or company'
+              : 'Filter companies by name, industry, or tech park'
+          }
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          onClear={() => onSearchChange('')}
+          placeholder={
+            isJobs ? 'Filter jobs by title or company...' : 'Filter by company, industry, or park...'
+          }
+        />
       </div>
 
       {/* Dual Tab Panels with preserved scroll states & zero jump */}
@@ -143,17 +98,11 @@ export default function Sidebar({
               <p className="text-xs text-slate-400 font-medium">Searching tech offices within radius...</p>
             </div>
           ) : companies.length === 0 ? (
-            <div className="py-14 px-6 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-slate-800/70 border border-slate-700/50 flex items-center justify-center mx-auto shadow-inner">
-                <SearchX className="w-6 h-6 text-slate-400" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="font-semibold text-xs text-slate-200">No Tech Offices in this Radius</h4>
-                <p className="text-[11px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
-                  Expand the radius slider or run our automated discovery to crawl tech companies in this hub.
-                </p>
-              </div>
-            </div>
+            <EmptyState
+              icon={<SearchX className="w-6 h-6 text-slate-400" />}
+              title="No Tech Offices in this Radius"
+              description="Expand the radius slider or run our automated discovery to crawl tech companies in this hub."
+            />
           ) : (
             companies.map((c) => (
               <CompanyCard
@@ -180,17 +129,11 @@ export default function Sidebar({
               <p className="text-xs text-slate-400 font-medium">Searching nearby jobs within radius...</p>
             </div>
           ) : jobs.length === 0 ? (
-            <div className="py-14 px-6 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-slate-800/70 border border-slate-700/50 flex items-center justify-center mx-auto shadow-inner">
-                <Briefcase className="w-6 h-6 text-slate-400" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="font-semibold text-xs text-slate-200">No Technical Jobs in this Radius</h4>
-                <p className="text-[11px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
-                  Expand the radius slider or run automated discovery to crawl verified company career boards.
-                </p>
-              </div>
-            </div>
+            <EmptyState
+              icon={<Briefcase className="w-6 h-6 text-slate-400" />}
+              title="No Technical Jobs in this Radius"
+              description="Expand the radius slider or run automated discovery to crawl verified company career boards."
+            />
           ) : (
             jobs.map((j) => <JobCard key={j.id} job={j} />)
           )}

@@ -1,4 +1,5 @@
 import { TechnicalJobSearchResult, WorkArrangement } from '@/types';
+import { Card, Badge } from '@/components/ui';
 import {
   MapPin,
   ExternalLink,
@@ -38,17 +39,17 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function formatArrangement(arr: WorkArrangement): { text: string; className: string } {
+function formatArrangement(arr: WorkArrangement): { text: string; variant: 'emerald' | 'sky' | 'slate' | 'amber' } {
   switch (arr) {
     case 'in_office':
-      return { text: 'In-Office', className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
+      return { text: 'In-Office', variant: 'emerald' };
     case 'hybrid':
-      return { text: 'Hybrid', className: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30' };
+      return { text: 'Hybrid', variant: 'sky' };
     case 'remote':
-      return { text: 'Remote', className: 'text-purple-400 bg-purple-500/10 border-purple-500/30' };
+      return { text: 'Remote', variant: 'amber' };
     case 'unknown':
     default:
-      return { text: 'Unknown', className: 'text-slate-400 bg-slate-500/10 border-slate-500/30' };
+      return { text: 'Unknown', variant: 'slate' };
   }
 }
 
@@ -75,9 +76,10 @@ export default function JobCard({ job }: JobCardProps) {
   const avatarColor = getAvatarColor(job.company_name);
 
   return (
-    <div
+    <Card
+      hoverable
       aria-label={`${job.title} at ${job.company_name}${distanceKm ? `, ${distanceKm} km away` : ''}`}
-      className="p-3.5 rounded-xl bg-slate-900/50 hover:bg-slate-850/80 border border-slate-800/80 hover:border-slate-700/90 hover:shadow-md hover:shadow-black/25 transition-all space-y-2.5 group"
+      className="p-3.5 space-y-2.5 group"
     >
       <div className="flex items-start gap-2.5">
         <div
@@ -95,9 +97,9 @@ export default function JobCard({ job }: JobCardProps) {
             >
               {job.title}
             </h4>
-            <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full border shrink-0 ${arr.className}`}>
+            <Badge variant={arr.variant} className="shrink-0 font-mono text-[10px]">
               {arr.text}
-            </span>
+            </Badge>
           </div>
 
           <p className="text-[11px] text-slate-400 truncate mt-0.5 font-medium">
@@ -149,6 +151,6 @@ export default function JobCard({ job }: JobCardProps) {
           </a>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

@@ -169,7 +169,9 @@ def create_server(
                 try:
                     with psycopg.connect(database_url) as db:
                         rows = db.execute(
-                            """SELECT id, status, lat, lng, radius_km, created_at
+                            """SELECT id, status, lat, lng, radius_km, created_at,
+                                      started_at, finished_at, company_count, job_count,
+                                      evidence_count, error
                                FROM discovery_jobs WHERE user_id = %s
                                ORDER BY created_at DESC LIMIT 20""",
                             (user_id,),
@@ -179,9 +181,21 @@ def create_server(
                     return
                 statuses = {"pending": "queued", "running": "in_progress", "partial": "completed"}
                 self._send(200, {"jobs": [
-                    {"id": str(id), "status": statuses.get(status, status), "lat": lat,
-                     "lng": lng, "radius_km": radius, "created_at": created.isoformat()}
-                    for id, status, lat, lng, radius, created in rows
+                    {
+                        "id": str(id),
+                        "status": statuses.get(status, status),
+                        "lat": lat,
+                        "lng": lng,
+                        "radius_km": radius,
+                        "created_at": created.isoformat() if created else None,
+                        "started_at": started.isoformat() if started else None,
+                        "finished_at": finished.isoformat() if finished else None,
+                        "company_count": company_count or 0,
+                        "job_count": job_count or 0,
+                        "evidence_count": evidence_count or 0,
+                        "error": error,
+                    }
+                    for id, status, lat, lng, radius, created, started, finished, company_count, job_count, evidence_count, error in rows
                 ]})
                 return
             if len(parts) != 5:

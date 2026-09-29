@@ -151,6 +151,12 @@ export interface DiscoveryJob {
   lng?: number;
   radius_km?: number;
   created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  company_count?: number;
+  job_count?: number;
+  evidence_count?: number;
+  error?: string | null;
 }
 
 export interface TechnicalJobPosting {

@@ -92,7 +92,7 @@ export default function HomePage() {
       radius_km: radiusKm,
       q: debouncedQuery,
     },
-    sidebarMode === 'jobs'
+    true
   );
 
   const { data: clusterData } = useClusters(
@@ -476,6 +476,11 @@ export default function HomePage() {
           currentRadiusKm={radiusKm}
           onTriggerJob={(id) => {
             setActiveJobIds((prev) => [id, ...prev.filter((x) => x !== id)]);
+          }}
+          onFocusLocation={(lat, lng, rKm) => {
+            setCenter({ lat, lng });
+            if (rKm) setRadiusKm(rKm);
+            setMobileTab('map');
           }}
         />
 

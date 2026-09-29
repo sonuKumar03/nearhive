@@ -45,7 +45,7 @@ export default function Sidebar({
       className={`w-full md:w-[420px] bg-slate-900/95 border-r border-slate-800/80 backdrop-blur-md flex flex-col z-10 shrink-0 h-full ${className}`}
     >
       {/* Search & Mode Header */}
-      <div className="p-3.5 border-b border-slate-800/80 bg-slate-900/60 space-y-2.5">
+      <div className="p-3.5 border-b border-slate-800/80 bg-slate-900/60 space-y-2.5 shrink-0">
         {/* Two-tab segmented mode toggle */}
         <div
           className="flex items-center gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800/90 shadow-inner"
@@ -56,16 +56,16 @@ export default function Sidebar({
             role="tab"
             aria-selected={!isJobs}
             onClick={() => onModeChange?.('companies')}
-            className={`flex-1 py-1.5 px-3 text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer font-medium ${
+            className={`flex-1 h-8 px-3 text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium border box-border ${
               !isJobs
-                ? 'bg-slate-850 text-amber-400 font-semibold shadow-sm border border-slate-700/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                ? 'bg-slate-800 text-amber-400 font-semibold shadow-sm border-slate-700/60'
+                : 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
             }`}
           >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Offices</span>
+            <Building2 className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Offices</span>
             <span
-              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border transition-colors ${
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border transition-colors shrink-0 ${
                 !isJobs
                   ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
                   : 'bg-slate-900 text-slate-500 border-slate-800'
@@ -78,16 +78,16 @@ export default function Sidebar({
             role="tab"
             aria-selected={isJobs}
             onClick={() => onModeChange?.('jobs')}
-            className={`flex-1 py-1.5 px-3 text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer font-medium ${
+            className={`flex-1 h-8 px-3 text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium border box-border ${
               isJobs
-                ? 'bg-slate-850 text-amber-400 font-semibold shadow-sm border border-slate-700/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                ? 'bg-slate-800 text-amber-400 font-semibold shadow-sm border-slate-700/60'
+                : 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-slate-900/40'
             }`}
           >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Nearby Jobs</span>
+            <Briefcase className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Nearby Jobs</span>
             <span
-              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border transition-colors ${
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border transition-colors shrink-0 ${
                 isJobs
                   ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
                   : 'bg-slate-900 text-slate-500 border-slate-800'
@@ -129,10 +129,15 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Cards List Container */}
-      <div className="flex-1 overflow-y-auto px-3.5 py-3 space-y-2.5">
-        {!isJobs ? (
-          isLoading ? (
+      {/* Dual Tab Panels with preserved scroll states & zero jump */}
+      <div className="flex-1 relative min-h-0 overflow-hidden">
+        {/* Offices Panel */}
+        <div
+          className={`absolute inset-0 overflow-y-auto px-3.5 py-3 space-y-2.5 [scrollbar-gutter:stable] ${
+            !isJobs ? 'block' : 'hidden'
+          }`}
+        >
+          {isLoading ? (
             <div className="py-16 text-center space-y-3">
               <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs text-slate-400 font-medium">Searching tech offices within radius...</p>
@@ -160,27 +165,36 @@ export default function Sidebar({
                 }
               />
             ))
-          )
-        ) : isLoadingJobs ? (
-          <div className="py-16 text-center space-y-3">
-            <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-slate-400 font-medium">Searching nearby jobs within radius...</p>
-          </div>
-        ) : jobs.length === 0 ? (
-          <div className="py-14 px-6 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800/70 border border-slate-700/50 flex items-center justify-center mx-auto shadow-inner">
-              <Briefcase className="w-6 h-6 text-slate-400" />
+          )}
+        </div>
+
+        {/* Nearby Jobs Panel */}
+        <div
+          className={`absolute inset-0 overflow-y-auto px-3.5 py-3 space-y-2.5 [scrollbar-gutter:stable] ${
+            isJobs ? 'block' : 'hidden'
+          }`}
+        >
+          {isLoadingJobs ? (
+            <div className="py-16 text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-400 font-medium">Searching nearby jobs within radius...</p>
             </div>
-            <div className="space-y-1">
-              <h4 className="font-semibold text-xs text-slate-200">No Technical Jobs in this Radius</h4>
-              <p className="text-[11px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
-                Expand the radius slider or run automated discovery to crawl verified company career boards.
-              </p>
+          ) : jobs.length === 0 ? (
+            <div className="py-14 px-6 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-800/70 border border-slate-700/50 flex items-center justify-center mx-auto shadow-inner">
+                <Briefcase className="w-6 h-6 text-slate-400" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-semibold text-xs text-slate-200">No Technical Jobs in this Radius</h4>
+                <p className="text-[11px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
+                  Expand the radius slider or run automated discovery to crawl verified company career boards.
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          jobs.map((j) => <JobCard key={j.id} job={j} />)
-        )}
+          ) : (
+            jobs.map((j) => <JobCard key={j.id} job={j} />)
+          )}
+        </div>
       </div>
     </aside>
   );

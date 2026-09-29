@@ -3,6 +3,8 @@ import { CompanySearchResult, PresenceType, WorkArrangement, TechnicalJobPosting
 import { useCompany, useSightings } from '@/hooks/useCompanyDetails';
 import { useCompanyTechnicalJobs } from '@/hooks/useDiscoveryJobs';
 import SightingsTimeline from './SightingsTimeline';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import {
   X,
   Building2,
@@ -29,28 +31,28 @@ function getPresenceDisplay(presence?: PresenceType) {
       return {
         label: 'Confirmed Office',
         description: 'Verified physical office location backed by corroborated registry or primary evidence.',
-        className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+        variant: 'emerald' as const,
         Icon: CheckCircle2,
       };
     case 'probable_office':
       return {
         label: 'Probable Office',
         description: 'Probable office location inferred from directory signals and consistent address listings.',
-        className: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+        variant: 'amber' as const,
         Icon: AlertCircle,
       };
     case 'job_location_only':
       return {
         label: 'Job Location Only',
         description: 'Location detected from hiring and job postings; physical office presence unconfirmed.',
-        className: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+        variant: 'sky' as const,
         Icon: MapPin,
       };
     default:
       return {
         label: 'Verified Location',
         description: 'Location verified through algorithmic evidence matching.',
-        className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+        variant: 'emerald' as const,
         Icon: ShieldCheck,
       };
   }
@@ -104,7 +106,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const { data: details, isLoading: loadingCompany } = useCompany(company?.id ?? null);
+  const { data: details } = useCompany(company?.id ?? null);
   const { data: sightingsData, isLoading: loadingSightings } = useSightings(company?.id ?? null);
   const { data: techJobsData, isLoading: loadingTechJobs } = useCompanyTechnicalJobs(
     company?.id ?? null,
@@ -138,19 +140,20 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
         </div>
         <div className="flex items-center gap-1.5">
           {onFocusOnMap && (
-            <button
+            <Button
+              size="xs"
+              variant="secondary"
               onClick={onFocusOnMap}
-              className="px-2 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-400 transition-colors flex items-center gap-1 cursor-pointer border border-slate-700/60"
+              leftIcon={<MapPin className="w-3.5 h-3.5 text-amber-400" />}
               title="Show on map"
             >
-              <MapPin className="w-3.5 h-3.5 text-amber-400" />
-              <span>Map</span>
-            </button>
+              Map
+            </Button>
           )}
           <button
             onClick={onClose}
             aria-label="Close company details"
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -158,7 +161,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      <div className="flex-1 overflow-y-auto p-4 space-y-5 [scrollbar-gutter:stable]">
         {/* Verification & Presence State Card */}
         <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -171,14 +174,15 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
             </div>
 
             {/* Presence Badge */}
-            <span
+            <Badge
+              variant={presenceInfo.variant}
+              size="md"
+              icon={<presenceInfo.Icon className="w-3.5 h-3.5" />}
               role="status"
               aria-label={`Presence: ${presenceInfo.label}`}
-              className={`text-xs px-2.5 py-1 rounded-full border font-semibold flex items-center gap-1.5 ${presenceInfo.className}`}
             >
-              <presenceInfo.Icon className="w-3.5 h-3.5" />
               {presenceInfo.label}
-            </span>
+            </Badge>
           </div>
 
           <p className="text-[11px] text-slate-400 leading-relaxed border-t border-slate-800/60 pt-2">
@@ -221,22 +225,22 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+              <Briefcase className="w-3.5 h-3.5 text-sky-400" />
               Recent Technical Jobs
               <span className="text-[10px] text-slate-400 font-normal">
                 (Last 14 days)
               </span>
             </h4>
             {technicalJobs.length > 0 && (
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
+              <Badge variant="sky" size="sm">
                 {technicalJobs.length} active
-              </span>
+              </Badge>
             )}
           </div>
 
           {loadingTechJobs ? (
             <div className="py-4 text-center text-xs text-slate-400 space-y-2">
-              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto" />
+              <div className="w-5 h-5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto" />
               <p>Loading technical job postings...</p>
             </div>
           ) : technicalJobs.length === 0 ? (
@@ -266,7 +270,7 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
                             href={job.canonical_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-[11px] text-indigo-400 hover:underline flex items-center gap-1 mt-0.5"
+                            className="text-[11px] text-sky-400 hover:underline flex items-center gap-1 mt-0.5"
                           >
                             <span>View job posting</span>
                             <ExternalLink className="w-2.5 h-2.5" />
@@ -289,47 +293,42 @@ export default function CompanyDetailDrawer({ company, onClose, onFocusOnMap }: 
 
                     {/* Badges: Arrangement & Recency Label */}
                     <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/60">
-                      {/* Work arrangement with accessible label */}
-                      <span
-                        role="status"
-                        aria-label={arrangement.ariaLabel}
-                        className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300"
-                      >
+                      {/* Work arrangement */}
+                      <Badge variant="slate" size="sm" role="status" aria-label={arrangement.ariaLabel}>
                         {arrangement.text}
-                      </span>
+                      </Badge>
 
-                      {/* Recency label distinguishing Posted within 14 days vs Recently observed vs Stale */}
+                      {/* Recency label */}
                       {job.publication_state === 'stale' ? (
-                        <span
+                        <Badge
+                          variant="slate"
+                          size="sm"
+                          icon={<Clock className="w-2.5 h-2.5" />}
                           role="status"
                           aria-label="Stale job posting"
-                          className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1"
                         >
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>Stale</span>
-                        </span>
+                          Stale
+                        </Badge>
                       ) : isPostedRecent ? (
-                        <span
+                        <Badge
+                          variant="emerald"
+                          size="sm"
+                          icon={<Calendar className="w-2.5 h-2.5" />}
                           role="status"
                           aria-label="Posted within 14 days"
-                          className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"
                         >
-                          <Calendar className="w-2.5 h-2.5" />
-                          <span>
-                            Posted within 14 days{postedFormatted ? ` (${postedFormatted})` : ''}
-                          </span>
-                        </span>
+                          Posted within 14 days{postedFormatted ? ` (${postedFormatted})` : ''}
+                        </Badge>
                       ) : (
-                        <span
+                        <Badge
+                          variant="amber"
+                          size="sm"
+                          icon={<Clock className="w-2.5 h-2.5" />}
                           role="status"
                           aria-label="Recently observed"
-                          className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-1"
                         >
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>
-                            Recently observed{observedFormatted ? ` (${observedFormatted})` : ''}
-                          </span>
-                        </span>
+                          Recently observed{observedFormatted ? ` (${observedFormatted})` : ''}
+                        </Badge>
                       )}
 
                       {/* Raw Location */}

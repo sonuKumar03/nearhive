@@ -1,4 +1,5 @@
 import { CompanySearchResult, PresenceType, WorkArrangement } from '@/types';
+import { Card, Badge } from '@/components/ui';
 import {
   MapPin,
   Users,
@@ -57,20 +58,20 @@ function getPresenceBadge(presence?: PresenceType, confidencePercent: number = 6
   if (presence === 'confirmed_office' || confidencePercent >= 80) {
     return {
       label: `Confirmed · ${confidencePercent}%`,
-      className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      variant: 'emerald' as const,
       Icon: CheckCircle2,
     };
   }
   if (presence === 'job_location_only') {
     return {
       label: `Hiring · ${confidencePercent}%`,
-      className: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+      variant: 'sky' as const,
       Icon: MapPin,
     };
   }
   return {
     label: `Probable · ${confidencePercent}%`,
-    className: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    variant: 'amber' as const,
     Icon: AlertCircle,
   };
 }
@@ -103,9 +104,11 @@ export default function CompanyCard({ company, onClick, isSelected = false }: Co
   const displayAddress = cleanAddress(company.address);
 
   return (
-    <div
+    <Card
       role="button"
       tabIndex={0}
+      hoverable
+      selected={isSelected}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -116,11 +119,7 @@ export default function CompanyCard({ company, onClick, isSelected = false }: Co
       aria-label={`${company.name}, ${distanceKm ? `${distanceKm} km away, ` : ''}${conf}% verified${
         company.presence_type ? `, ${company.presence_type}` : ''
       }`}
-      className={`p-3.5 rounded-xl transition-all cursor-pointer group space-y-2.5 border ${
-        isSelected
-          ? 'bg-slate-850/95 border-amber-500/60 shadow-lg shadow-amber-500/5 ring-1 ring-amber-500/30'
-          : 'bg-slate-900/50 hover:bg-slate-850/80 border-slate-800/80 hover:border-slate-700/90 hover:shadow-md hover:shadow-black/25'
-      }`}
+      className="p-3.5 space-y-2.5 group"
     >
       {/* Header: Monogram Avatar + Title + Status Pill */}
       <div className="flex items-start gap-2.5">
@@ -141,13 +140,13 @@ export default function CompanyCard({ company, onClick, isSelected = false }: Co
             </h4>
 
             {/* Unified status pill */}
-            <span
-              role="status"
-              className={`inline-flex items-center gap-1 text-[10px] font-medium font-mono px-2 py-0.5 rounded-full border shrink-0 ${status.className}`}
+            <Badge
+              variant={status.variant}
+              icon={<status.Icon className="w-2.5 h-2.5" />}
+              className="shrink-0 font-mono text-[10px]"
             >
-              <status.Icon className="w-2.5 h-2.5" />
-              <span>{status.label}</span>
-            </span>
+              {status.label}
+            </Badge>
           </div>
 
           {/* Industry & Size */}
@@ -176,29 +175,21 @@ export default function CompanyCard({ company, onClick, isSelected = false }: Co
       {(Boolean(techJobCount && techJobCount > 0) || arrangements.length > 0) && (
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           {Boolean(techJobCount && techJobCount > 0) && (
-            <span
-              role="status"
-              aria-label={`${techJobCount} recent technical job${techJobCount === 1 ? '' : 's'}`}
-              className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/25"
+            <Badge
+              variant="sky"
+              icon={<Briefcase className="w-2.5 h-2.5" />}
+              className="font-mono text-[10px]"
             >
-              <Briefcase className="w-2.5 h-2.5 text-indigo-400" />
-              <span>
-                {techJobCount} tech job{techJobCount === 1 ? '' : 's'}
-              </span>
-            </span>
+              {techJobCount} tech job{techJobCount === 1 ? '' : 's'}
+            </Badge>
           )}
 
           {arrangements.map((arr) => {
             const info = formatArrangement(arr);
             return (
-              <span
-                key={arr}
-                role="status"
-                aria-label={info.ariaLabel}
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/50 text-slate-300"
-              >
+              <Badge key={arr} variant="slate" className="text-[10px]">
                 {info.text}
-              </span>
+              </Badge>
             );
           })}
         </div>
@@ -224,6 +215,6 @@ export default function CompanyCard({ company, onClick, isSelected = false }: Co
           <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
         </span>
       </div>
-    </div>
+    </Card>
   );
 }
